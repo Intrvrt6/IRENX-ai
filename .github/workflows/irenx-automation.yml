@@ -1,0 +1,59 @@
+name: IRENX Automation
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: irenx-automation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate IRENX
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s index.html
+          test -s api/index.ts
+          test -s vercel.json
+          test -s .github/workflows/cloudflare-pages.yml
+          echo "IRENX core files OK"
+
+      - name: Scan for exposed secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RInE --exclude-dir=.git --exclude='*.md' '(sk-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{20,}|-----BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY-----|TWELVEDATA_API_KEY=[^[:space:]]+|CLOUDFLARE_API_TOKEN=[^[:space:]]+)' .; then
+            echo 'Potential secret detected in repository files.'
+            exit 1
+          fi
+          echo 'Secret scan OK'
+
+      - name: Validate workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'CLOUDFLARE_API_TOKEN' .github/workflows/cloudflare-pages.yml
+          grep -q 'CLOUDFLARE_ACCOUNT_ID' .github/workflows/cloudflare-pages.yml
+          grep -q 'wrangler pages deploy' .github/workflows/cloudflare-pages.yml
+          echo 'Cloudflare workflow checks OK'
+
+      - name: Summary
+        shell: bash
+        run: |
+          echo 'IRENX automation validation completed successfully.'
+          echo "Commit: $GITHUB_SHA"
