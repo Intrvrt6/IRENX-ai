@@ -1,0 +1,52 @@
+name: IRENX CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: irenx-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate required files
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in index.html api/index.ts vercel.json manifest.webmanifest sw.js offline-engine.js offline.html .github/workflows/cloudflare-pages.yml .github/workflows/irenx-automation.yml; do
+            test -s "$f" || { echo "Missing: $f"; exit 1; }
+          done
+      - name: Secret scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RInE --exclude-dir=.git --exclude='*.md' '(sk-[A-Za-z0-9_-]{20,}|-----BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY-----|TWELVEDATA_API_KEY=[^[:space:]]+|CLOUDFLARE_API_TOKEN=[^[:space:]]+)' .; then
+            echo 'Potential secret detected'; exit 1
+          fi
+      - name: Validate offline integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'offline-engine.js' index.html
+          grep -q 'manifest.webmanifest' index.html
+          grep -q 'serviceWorker.register' index.html
+          grep -q 'IRENXOfflineBrain' offline-engine.js
+          grep -q 'NO TRADE' offline-engine.js
+      - name: Validate API source
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '/api/market' api/index.ts
+          grep -q '/api/health' api/index.ts
+          echo 'IRENX CI PASS'
