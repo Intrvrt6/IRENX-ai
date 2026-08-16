@@ -29,7 +29,7 @@ TWELVEDATA_API_KEY=your_real_twelve_data_key
 MARKET_PROVIDER=twelvedata
 ```
 
-Twelve Data documents the real-time WebSocket endpoint as `wss://ws.twelvedata.com/v1/quotes/price?apikey=...` and the subscription format as an `action: subscribe` message with a comma-separated symbol list. The provider also documents `/price` as the latest-price REST endpoint. citeturn0search1turn1search0
+Twelve Data's documented real-time WebSocket endpoint is `wss://ws.twelvedata.com/v1/quotes/price?apikey=...`, using an `action: subscribe` message with a comma-separated symbol list. Its `/price` endpoint provides the latest available price.
 
 ## Deployment
 
