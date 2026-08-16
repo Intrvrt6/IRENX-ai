@@ -1,0 +1,12 @@
+{
+  "name": "IRENX PRIME AI",
+  "short_name": "IRENX",
+  "description": "IRENX PRIME AI — offline-capable trading intelligence dashboard.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "lang": "id",
+  "icons": []
+}
