@@ -30,8 +30,12 @@ jobs:
           test -s index.html
           test -s api/index.ts
           test -s vercel.json
+          test -s manifest.webmanifest
+          test -s sw.js
+          test -s offline-engine.js
+          test -s offline.html
           test -s .github/workflows/cloudflare-pages.yml
-          echo "IRENX core files OK"
+          echo "IRENX core + offline files OK"
 
       - name: Scan for exposed secrets
         shell: bash
@@ -51,6 +55,16 @@ jobs:
           grep -q 'CLOUDFLARE_ACCOUNT_ID' .github/workflows/cloudflare-pages.yml
           grep -q 'wrangler pages deploy' .github/workflows/cloudflare-pages.yml
           echo 'Cloudflare workflow checks OK'
+
+      - name: Validate offline integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'offline-engine.js' index.html
+          grep -q 'serviceWorker.register' index.html
+          grep -q 'manifest.webmanifest' index.html
+          grep -q 'IRENXOfflineBrain' offline-engine.js
+          echo 'Offline PWA integration checks OK'
 
       - name: Summary
         shell: bash
