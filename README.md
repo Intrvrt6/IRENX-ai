@@ -9,6 +9,29 @@ IRENX PRIME AI — live web terminal with a server-side market-data gateway.
 - Credentials stay server-side in `TWELVEDATA_API_KEY`.
 - `vercel.json` — Bun runtime configuration.
 
+## Claude Code + OmniRoute
+
+IRENX-ai includes a safe local setup for using Claude Code through OmniRoute without storing a real Anthropic API key in the repository.
+
+- Template: `.claude/omniroute.settings.example.json`
+- Setup script: `scripts/setup-claude-omniroute.sh`
+- Local Claude credentials/config are ignored by Git via `.gitignore`.
+
+The OmniRoute configuration uses `ANTHROPIC_BASE_URL` for the gateway and `ANTHROPIC_AUTH_TOKEN` for the OmniRoute access token. `ANTHROPIC_API_KEY` is only a dummy value used for OAuth-bypass compatibility; the real OmniRoute token must stay local and must never be committed.
+
+Example setup:
+
+```bash
+OMNIROUTE_BASE_URL=http://127.0.0.1:20189 \
+OMNIROUTE_API_KEY=oma_live_xxx \
+OMNIROUTE_OPUS_MODEL=provider/model-id \
+OMNIROUTE_SONNET_MODEL=provider/model-id \
+OMNIROUTE_HAIKU_MODEL=provider/model-id \
+bash scripts/setup-claude-omniroute.sh
+```
+
+Restart Claude Code after changing the configuration because Claude Code reads these environment variables at startup. OmniRoute's official Claude Code configuration notes that `ANTHROPIC_BASE_URL` should point to the gateway root without `/v1`, while Claude Code appends `/v1/messages`. See the [OmniRoute Claude Code Configuration wiki](https://github.com/diegosouzapw/OmniRoute/wiki/Claude-Code-Configuration).
+
 ## Endpoints
 - `GET /api/health` — gateway/provider status.
 - `GET /api/market?symbol=XAUUSD` — normalized latest quote.
