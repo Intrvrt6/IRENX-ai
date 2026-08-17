@@ -1,6 +1,7 @@
 services:
   irenx:
     build: .
+    image: irenx-ai:latest
     container_name: irenx-ai
     restart: unless-stopped
     env_file:
