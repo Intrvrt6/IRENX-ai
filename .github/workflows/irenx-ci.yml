@@ -25,11 +25,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for f in index.html api/index.ts api/ai.ts api/dify.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts mcp/irenx.ts docs/DIFY_INTEGRATION.md docs/CLOUDFLARE_DEPLOYMENT.md Dockerfile docker-compose.yml Caddyfile deploy.sh manifest.webmanifest; do
+          for f in index.html api/index.ts api/ai.ts api/dify.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts mcp/irenx.ts worker/index.ts package.json wrangler.toml docs/DIFY_INTEGRATION.md docs/CLOUDFLARE_DEPLOYMENT.md docs/CLOUDFLARE_NATIVE.md manifest.webmanifest; do
             test -s "$f" || { echo "Missing: $f"; exit 1; }
           done
           test ! -e vercel.json
-          echo 'Self-hosted deployment layout OK'
+          echo 'IRENX source layout OK'
 
       - name: Secret scan (tracked source only)
         shell: bash
@@ -91,11 +91,26 @@ jobs:
           grep -q '"search"' mcp/irenx.ts
           grep -q '"fetch"' mcp/irenx.ts
           grep -q 'structuredContent' mcp/irenx.ts
-          grep -q 'MCP_PUBLIC_ORIGIN' .env.example
-          grep -q 'url: "/mcp"' api/index.ts || grep -q 'url.pathname === "/mcp"' api/index.ts
           echo 'MCP integration validation OK'
 
-      - name: Validate self-hosted deployment
+      - name: Validate Cloudflare-native Worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'createMcpHandler' worker/index.ts
+          grep -q 'McpServer' worker/index.ts
+          grep -q 'registerTool' worker/index.ts
+          grep -q '"search"' worker/index.ts
+          grep -q '"fetch"' worker/index.ts
+          grep -q 'structuredContent' worker/index.ts
+          grep -q 'ai.irenx.com' wrangler.toml
+          grep -q 'custom_domain = true' wrangler.toml
+          grep -q 'observability' wrangler.toml
+          grep -q 'OMNIROUTE_BASE_URL' worker/index.ts
+          grep -q 'DIFY_BASE_URL' worker/index.ts
+          echo 'Cloudflare-native Worker validation OK'
+
+      - name: Validate self-hosted migration files
         shell: bash
         run: |
           set -euo pipefail
@@ -106,10 +121,15 @@ jobs:
           grep -q 'docker compose up -d' deploy.sh
           bash -n deploy.sh
           docker compose config -q
-          echo 'Cloudflare/self-hosted deployment validation OK'
+          echo 'Legacy self-hosted migration files remain syntactically valid'
 
       - name: Build IRENX container
         run: docker build --pull --tag irenx-ci:test .
+
+      - name: Validate Worker dependency graph
+        run: |
+          npm install --ignore-scripts
+          npx wrangler deploy --dry-run
 
       - name: Validate API source
         shell: bash
