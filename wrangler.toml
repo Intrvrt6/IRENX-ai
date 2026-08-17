@@ -15,8 +15,9 @@ IRENX_CB_COOLDOWN_MS = "30000"
 IRENX_INPUT_USD_PER_1M = "3"
 IRENX_OUTPUT_USD_PER_1M = "15"
 IRENX_EST_OUTPUT_TOKENS = "1200"
-DIFY_BASE_URL = ""
-OMNIROUTE_BASE_URL = ""
+
+[observability]
+enabled = true
 
 [[routes]]
 pattern = "ai.irenx.com"
