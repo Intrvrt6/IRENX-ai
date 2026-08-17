@@ -25,7 +25,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for f in index.html api/index.ts api/ai.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts vercel.json manifest.webmanifest sw.js offline-engine.js offline.html .github/workflows/cloudflare-pages.yml .github/workflows/irenx-offline-test.yml; do
+          for f in index.html api/index.ts api/ai.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts vercel.json manifest.webmanifest sw.js offline-engine.js offline.html .github/workflows/irenx-offline-test.yml; do
             test -s "$f" || { echo "Missing: $f"; exit 1; }
           done
 
