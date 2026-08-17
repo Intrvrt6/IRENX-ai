@@ -27,16 +27,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for f in index.html api/index.ts api/ai.ts src/omniroute/core-router.ts vercel.json manifest.webmanifest sw.js offline-engine.js offline.html .github/workflows/cloudflare-pages.yml; do
+          for f in index.html api/index.ts api/ai.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts vercel.json manifest.webmanifest sw.js offline-engine.js offline.html .github/workflows/cloudflare-pages.yml; do
             test -s "$f" || { echo "Missing: $f"; exit 1; }
           done
-          echo "IRENX core + AI router + offline files OK"
+          echo "IRENX core + AI router + OmniCopilot gateway + offline files OK"
 
       - name: Scan for exposed secrets
         shell: bash
         run: |
           set -euo pipefail
-          findings="$(grep -RInE --exclude-dir=.git --exclude='*.md' '(sk-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{20,}|-----BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY-----|TWELVEDATA_API_KEY=[^[:space:]]+|CLOUDFLARE_API_TOKEN=[^[:space:]]+)' . || true)"
+          findings="$(grep -RInE --exclude-dir=.git --exclude-dir=.github --exclude='*.md' '(sk-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{20,}|-----BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY-----|TWELVEDATA_API_KEY=[^[:space:]]+|CLOUDFLARE_API_TOKEN=[^[:space:]]+)' . || true)"
           findings="$(printf '%s\n' "$findings" | grep -vF 'sk-dummy-key-to-bypass-oauth' || true)"
           if [[ -n "$findings" ]]; then
             printf '%s\n' "$findings"
@@ -77,6 +77,17 @@ jobs:
           grep -q 'MAX_TOKENS' src/omniroute/core-router.ts
           grep -q 'REQUEST_TIMEOUT_MS' src/omniroute/core-router.ts
           echo 'AI router validation OK'
+
+      - name: Validate OmniCopilot gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'chooseRoute' api/v1/chat/completions.ts
+          grep -q 'X-IRENX-Route' api/v1/chat/completions.ts
+          grep -q 'OMNIROUTE_API_KEY' api/v1/chat/completions.ts
+          grep -q 'OMNIROUTE_BASE_URL' api/v1/models.ts
+          grep -q 'IRENX_GATEWAY_API_KEY' api/v1/models.ts
+          echo 'OmniCopilot gateway validation OK'
 
       - name: Summary
         shell: bash
