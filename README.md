@@ -50,7 +50,7 @@ IRENX adds an application-level policy layer in front of OmniRoute without dupli
 | Interactive chat | `auto/chat:fast` / reliable | latency + stability |
 | General | `auto` | balanced |
 
-OmniRoute's current Auto-Combo engine already exposes category/tier routes and live scoring across health, quota, cost, latency, task fit, stability, tier, context affinity, and connection density. IRENX therefore supplies the workload policy while OmniRoute remains the authoritative provider/model router. citehttps://github.com/diegosouzapw/OmniRoute/blob/release/v3.8.49/docs/routing/AUTO-COMBO.md
+OmniRoute's Auto-Combo engine provides category/tier routes and live scoring across health, quota, cost, latency, task fit, stability, tier, context affinity, and connection density. IRENX therefore supplies the workload policy while OmniRoute remains the authoritative provider/model router.
 
 ### Resilience
 
