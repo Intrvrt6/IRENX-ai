@@ -6,9 +6,72 @@ IRENX PRIME AI — live web terminal with a server-side market-data gateway.
 - `index.html` — IRENX PRIME AI black-terminal UI.
 - `api/index.ts` — Bun/Vercel gateway with REST + WebSocket endpoints.
 - `src/omniroute/core-router.ts` — IRENX OmniRoute Core Router V2: task-aware routing policy, scoring telemetry, quota/budget guards, circuit breaker, timeout, and observability.
+- `api/v1/models.ts` + `api/v1/chat/completions.ts` — OpenAI-compatible IRENX gateway for OmniCopilot and other compatible clients. It keeps OmniRoute credentials server-side while applying IRENX task-aware routing before forwarding requests.
 - Provider adapter — Twelve Data WebSocket for streaming prices, with REST `/price` fallback when the stream has not populated a symbol yet.
 - Credentials stay server-side in `TWELVEDATA_API_KEY` and `OMNIROUTE_API_KEY`.
 - `vercel.json` — Bun runtime configuration.
+
+## IRENX + OmniCopilot
+
+IRENX now has a native OpenAI-compatible bridge designed for [OmniCopilot](https://github.com/diegosouzapw/OmniCopilot). The architecture is deliberately layered:
+
+```text
+VS Code / Copilot Chat
+        |
+        v
+   OmniCopilot
+        |
+        v
+ IRENX /api/v1
+        |
+        v
+ IRENX Core Router
+ task classification + policy + guards
+        |
+        v
+    OmniRoute
+        |
+        +---- Claude
+        +---- GPT
+        +---- Gemini
+        +---- Qwen / DeepSeek / Kimi / etc.
+        +---- provider fallback / health / quota
+```
+
+This keeps **OmniRoute as the AI gateway**, **IRENX as the policy/intelligence layer**, and **OmniCopilot as the VS Code/Copilot interface**. IRENX does not maintain a second provider registry.
+
+### Connect OmniCopilot to IRENX
+
+1. Run OmniRoute on the server that hosts the provider credentials.
+2. Deploy IRENX with `OMNIROUTE_BASE_URL` and `OMNIROUTE_API_KEY` configured server-side.
+3. Optionally set `IRENX_GATEWAY_API_KEY` for client authentication.
+4. In OmniCopilot, set `omnicopilot.baseUrl` to:
+
+```text
+https://YOUR-IRENX-HOST/api/v1
+```
+
+5. Put the same `IRENX_GATEWAY_API_KEY` into OmniCopilot's SecretStorage if gateway authentication is enabled.
+6. Open Copilot Chat and refresh the model list.
+
+OmniCopilot discovers models through `GET /api/v1/models` and streams chat through `POST /api/v1/chat/completions`.
+
+### Smart routing mode
+
+By default, `IRENX_COPILOT_RESPECT_MODEL=0`. The model selected in Copilot is treated as an interface hint, while IRENX classifies the workload and chooses an OmniRoute route such as:
+
+| Workload | IRENX route family |
+|---|---|
+| Coding / debugging | `auto/coding:pro` or `auto/coding:fast` |
+| Reasoning / analysis / trading | `auto/reasoning:pro` or `auto/reasoning:cheap` |
+| Vision | `auto/vision:pro` |
+| Documentation | `auto/chat:reliable` |
+| Interactive chat | `auto/chat:fast` / `auto/chat:reliable` |
+| General | `auto` |
+
+Set `IRENX_COPILOT_RESPECT_MODEL=1` if the user must pin the exact model selected in the Copilot picker.
+
+The bridge preserves **streaming, tools, tool choice, temperature, and other OpenAI-compatible request fields** while replacing the upstream `model` with the IRENX policy decision when smart routing is enabled. Response headers expose `X-IRENX-Route`, `X-IRENX-Task`, and `X-IRENX-Strategy` for diagnostics.
 
 ## Claude Code + OmniRoute V2
 
@@ -36,21 +99,6 @@ bash scripts/setup-claude-omniroute.sh
 ## IRENX OmniRoute Core Router V2
 
 IRENX adds an application-level policy layer in front of OmniRoute without duplicating OmniRoute's provider registry. The request is classified by workload, mapped to an OmniRoute route family, then executed by OmniRoute's own live scoring/fallback engine.
-
-### Task routing
-
-| Workload | Preferred route | Optimization |
-|---|---|---|
-| Coding / debugging | `auto/coding:pro` | quality + reliability |
-| Fast coding | `auto/coding:fast` | latency |
-| Reasoning / analysis / trading | `auto/reasoning:pro` | reasoning quality |
-| Budget reasoning | `auto/reasoning:cheap` | cost |
-| Vision | `auto/vision:pro` | vision capability |
-| Documentation | `auto/chat:reliable` | stability |
-| Interactive chat | `auto/chat:fast` / reliable | latency + stability |
-| General | `auto` | balanced |
-
-OmniRoute's Auto-Combo engine provides category/tier routes and live scoring across health, quota, cost, latency, task fit, stability, tier, context affinity, and connection density. IRENX therefore supplies the workload policy while OmniRoute remains the authoritative provider/model router.
 
 ### Resilience
 
@@ -82,23 +130,18 @@ IRENX_EST_OUTPUT_TOKENS=1200
 
 `POST /api/ai` executes a request through the IRENX Core Router and returns routing metadata under the `irenx` object.
 
-Example:
+### OpenAI-compatible endpoints
 
-```json
-{
-  "prompt": "debug this TypeScript API timeout",
-  "budgetUsd": 0.50,
-  "maxLatencyMs": 8000
-}
-```
-
-The response includes the task class, selected OmniRoute route, observed provider/model when exposed by the gateway, latency, circuit state, estimated cost, and scoring policy.
+- `GET /api/v1/models` — authenticated proxy to OmniRoute model discovery.
+- `POST /api/v1/chat/completions` — streaming/non-streaming OpenAI-compatible gateway with IRENX task-aware model selection.
 
 ## Endpoints
 - `GET /api/health` — market + AI gateway status.
 - `GET /api/ai/health` — IRENX AI Core Router observability.
 - `GET /api/ai/route?prompt=...` — dry-run task-aware route selection.
 - `POST /api/ai` — task-aware AI request through OmniRoute.
+- `GET /api/v1/models` — OmniCopilot-compatible model catalog proxy.
+- `POST /api/v1/chat/completions` — OmniCopilot-compatible chat gateway.
 - `GET /api/market?symbol=XAUUSD` — normalized latest quote.
 - `GET /api/market?symbol=EURUSD` — normalized latest quote.
 - `GET /api/market?symbol=GBPUSD` — normalized latest quote.
