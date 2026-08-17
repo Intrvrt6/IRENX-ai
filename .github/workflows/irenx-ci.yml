@@ -25,7 +25,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for f in index.html api/index.ts api/ai.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts vercel.json manifest.webmanifest sw.js offline-engine.js offline.html .github/workflows/irenx-offline-test.yml; do
+          for f in index.html api/index.ts api/ai.ts api/dify.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts docs/DIFY_INTEGRATION.md vercel.json manifest.webmanifest sw.js offline-engine.js offline.html .github/workflows/irenx-offline-test.yml; do
             test -s "$f" || { echo "Missing: $f"; exit 1; }
           done
 
@@ -79,10 +79,24 @@ jobs:
           grep -q 'IRENX_GATEWAY_API_KEY' api/v1/models.ts
           echo 'OmniCopilot gateway validation OK'
 
+      - name: Validate Dify bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'DIFY_BASE_URL' api/dify.ts
+          grep -q 'DIFY_API_KEY' api/dify.ts
+          grep -q '/v1/workflows/run' api/dify.ts
+          grep -q '/v1/chat-messages' api/dify.ts
+          grep -q 'runDifyWorkflow' api/index.ts
+          grep -q 'runDifyChat' api/index.ts
+          grep -q 'DIFY_TIMEOUT_MS' .env.example
+          echo 'Dify bridge validation OK'
+
       - name: Validate API source
         shell: bash
         run: |
           set -euo pipefail
           grep -q '/api/market' api/index.ts
           grep -q '/api/health' api/index.ts
+          grep -q '/api/dify/health' api/index.ts
           echo 'IRENX CI PASS'
