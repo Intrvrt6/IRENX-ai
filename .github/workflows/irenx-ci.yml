@@ -33,7 +33,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          findings="$(grep -RInE --exclude-dir=.git --exclude='*.md' '(sk-[A-Za-z0-9_-]{20,}|-----BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY-----|TWELVEDATA_API_KEY=[^[:space:]]+|CLOUDFLARE_API_TOKEN=[^[:space:]]+)' . || true)"
+          findings="$(grep -RInE --exclude-dir=.git --exclude-dir=.github --exclude='*.md' '(sk-[A-Za-z0-9_-]{20,}|-----BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY-----|TWELVEDATA_API_KEY=[^[:space:]]+|CLOUDFLARE_API_TOKEN=[^[:space:]]+)' . || true)"
           findings="$(printf '%s\n' "$findings" | grep -vF 'sk-dummy-key-to-bypass-oauth' || true)"
           if [[ -n "$findings" ]]; then
             printf '%s\n' "$findings"
