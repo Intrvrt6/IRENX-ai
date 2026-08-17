@@ -1,0 +1,38 @@
+services:
+  irenx:
+    build: .
+    container_name: irenx-ai
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PORT: "3000"
+      CORS_ORIGIN: "https://ai.irenx.com"
+    expose:
+      - "3000"
+    networks:
+      - irenx
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: irenx-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - irenx
+    networks:
+      - irenx
+
+networks:
+  irenx:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
