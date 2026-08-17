@@ -8,7 +8,7 @@ set -euo pipefail
 #   OMNIROUTE_OPUS_MODEL=provider/model-id \
 #   OMNIROUTE_SONNET_MODEL=provider/model-id \
 #   OMNIROUTE_HAIKU_MODEL=provider/model-id \
-#   ./scripts/setup-claude-omniroute.sh
+#   bash scripts/setup-claude-omniroute.sh
 
 : "${OMNIROUTE_BASE_URL:?Set OMNIROUTE_BASE_URL, e.g. http://127.0.0.1:20189}"
 : "${OMNIROUTE_API_KEY:?Set OMNIROUTE_API_KEY to your OmniRoute access token/API key}"
@@ -26,7 +26,7 @@ fi
 
 cat > "$CONFIG_FILE" <<EOF
 {
-  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "\$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
     "ANTHROPIC_API_KEY": "sk-dummy-key-to-bypass-oauth",
     "ANTHROPIC_BASE_URL": "$OMNIROUTE_BASE_URL",
