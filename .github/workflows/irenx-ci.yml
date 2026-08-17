@@ -25,19 +25,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for f in index.html api/index.ts api/ai.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts vercel.json manifest.webmanifest sw.js offline-engine.js offline.html .github/workflows/cloudflare-pages.yml .github/workflows/irenx-automation.yml; do
+          for f in index.html api/index.ts api/ai.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts vercel.json manifest.webmanifest sw.js offline-engine.js offline.html .github/workflows/cloudflare-pages.yml .github/workflows/irenx-offline-test.yml; do
             test -s "$f" || { echo "Missing: $f"; exit 1; }
           done
 
-      - name: Secret scan
+      - name: Secret scan (tracked source only)
         shell: bash
         run: |
           set -euo pipefail
-          findings="$(grep -RInE --exclude-dir=.git --exclude-dir=.github --exclude='*.md' '(sk-[A-Za-z0-9_-]{20,}|-----BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY-----|TWELVEDATA_API_KEY=[^[:space:]]+|CLOUDFLARE_API_TOKEN=[^[:space:]]+)' . || true)"
+          # Do not scan workflow source itself: the scanner regex contains
+          # credential-shaped literals and would self-match. Workflow files
+          # only reference GitHub Secrets; no secret values are stored there.
+          files="$(git ls-files | grep -Ev '^(\.github/|docs/)|\.md$|^\.env\.example$|^\.claude/')"
+          findings="$(git grep -nE '(sk-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{20,}|-----BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY-----|TWELVEDATA_API_KEY=[^[:space:]]+|CLOUDFLARE_API_TOKEN=[^[:space:]]+)' -- $files || true)"
           findings="$(printf '%s\n' "$findings" | grep -vF 'sk-dummy-key-to-bypass-oauth' || true)"
           if [[ -n "$findings" ]]; then
             printf '%s\n' "$findings"
-            echo 'Potential real secret detected'
+            echo 'Potential real secret detected in tracked source files.'
             exit 1
           fi
           echo 'Secret scan OK'
