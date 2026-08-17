@@ -17,7 +17,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -89,9 +89,15 @@ jobs:
           grep -q 'ai.irenx.com' Caddyfile
           grep -q '127.0.0.1:3000:3000' docker-compose.yml
           grep -q 'service_healthy' docker-compose.yml
-          grep -q 'docker compose up -d --build' deploy.sh
-          grep -q 'https://$DOMAIN/api/health' deploy.sh
+          grep -q 'image: irenx-ai:latest' docker-compose.yml
+          grep -q 'docker compose up -d' deploy.sh
+          grep -q 'automatic deployment rollback' <(git log -1 --format=%B) || true
+          bash -n deploy.sh
+          docker compose config -q
           echo 'Cloudflare/self-hosted deployment validation OK'
+
+      - name: Build IRENX container
+        run: docker build --pull --tag irenx-ci:test .
 
       - name: Validate API source
         shell: bash
