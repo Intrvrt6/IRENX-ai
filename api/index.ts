@@ -1,4 +1,5 @@
 import { chatThroughOmniRoute, observabilitySnapshot, chooseRoute } from "../src/omniroute/core-router";
+import { difyConfigured, runDifyChat, runDifyWorkflow } from "./dify";
 
 const PROVIDER = process.env.MARKET_PROVIDER || "twelvedata";
 const API_KEY = process.env.TWELVEDATA_API_KEY || "";
@@ -82,7 +83,7 @@ async function restQuote(symbol: string): Promise<Quote> {
   return q;
 }
 function health() {
-  return { ok: true, provider: PROVIDER, configured: Boolean(API_KEY), providerWebSocket: providerConnected, clients: clients.size, time: new Date().toISOString(), ai: observabilitySnapshot() };
+  return { ok: true, provider: PROVIDER, configured: Boolean(API_KEY), providerWebSocket: providerConnected, clients: clients.size, time: new Date().toISOString(), dify: { configured: difyConfigured(), baseUrl: process.env.DIFY_BASE_URL || "http://127.0.0.1:5001" }, ai: observabilitySnapshot() };
 }
 
 subscribeProvider();
@@ -93,6 +94,7 @@ Bun.serve({
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors() });
     if (url.pathname === "/api/health") return json(health());
     if (url.pathname === "/api/ai/health") return json({ ok: true, service: "irenx-omniroute-core", ...observabilitySnapshot() });
+    if (url.pathname === "/api/dify/health") return json({ ok: difyConfigured(), service: "irenx-dify-bridge", configured: difyConfigured(), baseUrl: process.env.DIFY_BASE_URL || "http://127.0.0.1:5001" });
     if (url.pathname === "/api/ai/route") {
       const prompt = url.searchParams.get("prompt") || "";
       if (!prompt) return json({ error: "prompt is required" }, 400);
@@ -114,6 +116,24 @@ Bun.serve({
         return json({ error: error instanceof Error ? error.message : "IRENX AI router failure" }, 502);
       }
     }
+    if (url.pathname === "/api/dify/workflows/run" && request.method === "POST") {
+      try {
+        const body = await request.json();
+        return json(await runDifyWorkflow({ inputs: body?.inputs, user: body?.user, responseMode: body?.response_mode === "streaming" ? "streaming" : "blocking" }));
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : "Dify workflow failure" }, 502);
+      }
+    }
+    if (url.pathname === "/api/dify/chat-messages" && request.method === "POST") {
+      try {
+        const body = await request.json();
+        const query = typeof body?.query === "string" ? body.query : "";
+        if (!query.trim()) return json({ error: "query is required" }, 400);
+        return json(await runDifyChat({ query, user: body?.user, conversationId: body?.conversation_id, inputs: body?.inputs, responseMode: body?.response_mode === "streaming" ? "streaming" : "blocking" }));
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : "Dify chat failure" }, 502);
+      }
+    }
     if (url.pathname === "/api/market") {
       const symbol = (url.searchParams.get("symbol") || "XAUUSD").toUpperCase();
       if (!ALLOWED.has(symbol)) return json({ error: "Unsupported symbol" }, 400);
@@ -126,7 +146,7 @@ Bun.serve({
       if (!server.upgrade(request)) return new Response("WebSocket upgrade required", { status: 426, headers: cors() });
       return undefined;
     }
-    if (url.pathname === "/api") return json({ service: "IRENX live market + OmniRoute AI Core", endpoints: ["/api/health", "/api/market?symbol=XAUUSD", "/api/ws", "/api/ai", "/api/ai/health", "/api/ai/route?prompt=..."] });
+    if (url.pathname === "/api") return json({ service: "IRENX live market + OmniRoute AI Core + Dify", endpoints: ["/api/health", "/api/market?symbol=XAUUSD", "/api/ws", "/api/ai", "/api/ai/health", "/api/ai/route?prompt=...", "/api/dify/health", "/api/dify/workflows/run", "/api/dify/chat-messages"] });
     return new Response("Not found", { status: 404, headers: cors() });
   },
   websocket: {
