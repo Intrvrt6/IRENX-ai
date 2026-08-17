@@ -25,7 +25,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for f in index.html api/index.ts api/ai.ts api/dify.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts docs/DIFY_INTEGRATION.md docs/CLOUDFLARE_DEPLOYMENT.md Dockerfile docker-compose.yml Caddyfile deploy.sh manifest.webmanifest; do
+          for f in index.html api/index.ts api/ai.ts api/dify.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts mcp/irenx.ts docs/DIFY_INTEGRATION.md docs/CLOUDFLARE_DEPLOYMENT.md Dockerfile docker-compose.yml Caddyfile deploy.sh manifest.webmanifest; do
             test -s "$f" || { echo "Missing: $f"; exit 1; }
           done
           test ! -e vercel.json
@@ -82,6 +82,19 @@ jobs:
           grep -q 'DIFY_TIMEOUT_MS' .env.example
           echo 'Dify bridge validation OK'
 
+      - name: Validate MCP integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'createMcpHandler' mcp/irenx.ts
+          grep -q 'registerTool' mcp/irenx.ts
+          grep -q '"search"' mcp/irenx.ts
+          grep -q '"fetch"' mcp/irenx.ts
+          grep -q 'structuredContent' mcp/irenx.ts
+          grep -q 'MCP_PUBLIC_ORIGIN' .env.example
+          grep -q 'url: "/mcp"' api/index.ts || grep -q 'url.pathname === "/mcp"' api/index.ts
+          echo 'MCP integration validation OK'
+
       - name: Validate self-hosted deployment
         shell: bash
         run: |
@@ -91,7 +104,6 @@ jobs:
           grep -q 'service_healthy' docker-compose.yml
           grep -q 'image: irenx-ai:latest' docker-compose.yml
           grep -q 'docker compose up -d' deploy.sh
-          grep -q 'automatic deployment rollback' <(git log -1 --format=%B) || true
           bash -n deploy.sh
           docker compose config -q
           echo 'Cloudflare/self-hosted deployment validation OK'
