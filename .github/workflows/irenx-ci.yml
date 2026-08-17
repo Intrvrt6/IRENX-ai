@@ -88,7 +88,7 @@ jobs:
           grep -q 'irenx:' docker-compose.yml
           grep -q 'reverse_proxy irenx:3000' Caddyfile
           grep -q 'ai.irenx.com' Caddyfile
-          test -x deploy.sh
+          bash -n deploy.sh
           echo 'Self-hosted deployment validation OK'
 
       - name: Validate API source
