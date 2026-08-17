@@ -8,8 +8,14 @@ services:
     environment:
       PORT: "3000"
       CORS_ORIGIN: "https://ai.irenx.com"
-    expose:
-      - "3000"
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - irenx
 
@@ -25,7 +31,13 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - irenx
+      irenx:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--timeout=3", "http://127.0.0.1:2019/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     networks:
       - irenx
 
