@@ -1,0 +1,23 @@
+name = "irenx-ai"
+main = "worker/index.ts"
+compatibility_date = "2026-07-28"
+
+[vars]
+IRENX_ENV = "production"
+IRENX_PUBLIC_ORIGIN = "https://ai.irenx.com"
+IRENX_AI_BUDGET_USD = "2"
+IRENX_AI_MAX_REQUESTS = "100"
+IRENX_AI_MAX_TOKENS = "200000"
+IRENX_AI_MAX_LATENCY_MS = "12000"
+IRENX_AI_TIMEOUT_MS = "45000"
+IRENX_CB_FAILURE_THRESHOLD = "3"
+IRENX_CB_COOLDOWN_MS = "30000"
+IRENX_INPUT_USD_PER_1M = "3"
+IRENX_OUTPUT_USD_PER_1M = "15"
+IRENX_EST_OUTPUT_TOKENS = "1200"
+DIFY_BASE_URL = ""
+OMNIROUTE_BASE_URL = ""
+
+[[routes]]
+pattern = "ai.irenx.com"
+custom_domain = true
