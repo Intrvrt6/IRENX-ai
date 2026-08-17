@@ -2,11 +2,11 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
     "ANTHROPIC_API_KEY": "sk-dummy-key-to-bypass-oauth",
-    "ANTHROPIC_BASE_URL": "http://YOUR_OMNIROUTE_HOST:20189",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:20128",
     "ANTHROPIC_AUTH_TOKEN": "${OMNIROUTE_API_KEY}",
     "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "provider/model-id",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "provider/model-id",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "provider/model-id"
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "auto",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "auto",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "auto"
   }
 }
