@@ -9,28 +9,57 @@ IRENX PRIME AI — live web terminal with a server-side market-data gateway.
 - Credentials stay server-side in `TWELVEDATA_API_KEY`.
 - `vercel.json` — Bun runtime configuration.
 
-## Claude Code + OmniRoute
+## Claude Code + OmniRoute V2
 
-IRENX-ai includes a safe local setup for using Claude Code through OmniRoute without storing a real Anthropic API key in the repository.
+IRENX-ai includes a hardened local setup for using Claude Code through OmniRoute as a provider-neutral AI gateway.
 
 - Template: `.claude/omniroute.settings.example.json`
 - Setup script: `scripts/setup-claude-omniroute.sh`
+- Default routing mode: `auto` — OmniRoute selects the target model/provider using live routing signals and can fall back server-side.
+- Health gate: the setup script verifies `/v1/models` before modifying Claude settings.
+- Model discovery: enabled for Claude Code's native model picker.
+- Optional maintenance: `OMNIROUTE_AUTO_UPGRADE=1` upgrades the OmniRoute CLI during setup.
 - Local Claude credentials/config are ignored by Git via `.gitignore`.
 
-The OmniRoute configuration uses `ANTHROPIC_BASE_URL` for the gateway and `ANTHROPIC_AUTH_TOKEN` for the OmniRoute access token. `ANTHROPIC_API_KEY` is only a dummy value used for OAuth-bypass compatibility; the real OmniRoute token must stay local and must never be committed.
+The OmniRoute configuration uses `ANTHROPIC_BASE_URL` for the gateway root and `ANTHROPIC_AUTH_TOKEN` for the OmniRoute access token. `ANTHROPIC_API_KEY` is only a dummy value used for OAuth-bypass compatibility; the real OmniRoute token must stay local and must never be committed.
 
 Example setup:
 
 ```bash
-OMNIROUTE_BASE_URL=http://127.0.0.1:20189 \
+OMNIROUTE_BASE_URL=http://127.0.0.1:20128 \
 OMNIROUTE_API_KEY=oma_live_xxx \
-OMNIROUTE_OPUS_MODEL=provider/model-id \
-OMNIROUTE_SONNET_MODEL=provider/model-id \
-OMNIROUTE_HAIKU_MODEL=provider/model-id \
+OMNIROUTE_MODEL=auto \
 bash scripts/setup-claude-omniroute.sh
 ```
 
-Restart Claude Code after changing the configuration because Claude Code reads these environment variables at startup. OmniRoute's official Claude Code configuration notes that `ANTHROPIC_BASE_URL` should point to the gateway root without `/v1`, while Claude Code appends `/v1/messages`. See the [OmniRoute Claude Code Configuration wiki](https://github.com/diegosouzapw/OmniRoute/wiki/Claude-Code-Configuration).
+For deterministic tier mapping, replace `auto` with explicit OmniRoute model IDs using `OMNIROUTE_OPUS_MODEL`, `OMNIROUTE_SONNET_MODEL`, and `OMNIROUTE_HAIKU_MODEL`.
+
+Restart Claude Code after changing the configuration because Claude Code reads these environment variables at startup. OmniRoute's Claude Code integration requires the Anthropic gateway root without `/v1`; Claude Code appends `/v1/messages` itself.
+
+## OmniRoute V2 design
+
+```text
+Claude Code / IRENX tools
+          │
+          ▼
+     OmniRoute Gateway
+          │
+     ┌────┴────┐
+     ▼         ▼
+   AUTO      FUSION
+     │         │
+     └────┬────┘
+          ▼
+ Health + quota + latency + cost + success
+          │
+          ▼
+ Provider/model selection + automatic fallback
+          │
+          ▼
+ Compression / cache / memory / MCP as configured
+```
+
+IRENX does not hard-code a single upstream provider. Provider selection remains an OmniRoute responsibility, while IRENX owns the application logic and market-data layer.
 
 ## Endpoints
 - `GET /api/health` — gateway/provider status.
@@ -43,23 +72,3 @@ Restart Claude Code after changing the configuration because Claude Code reads t
 
 ## Supported symbols
 `XAUUSD`, `EURUSD`, `GBPUSD`, `USDJPY`, `NAS100`.
-
-## Environment variables
-Set these in the deployment platform; never put the key in `index.html` or commit it to GitHub.
-
-```text
-TWELVEDATA_API_KEY=your_real_twelve_data_key
-MARKET_PROVIDER=twelvedata
-```
-
-Twelve Data's documented real-time WebSocket endpoint is `wss://ws.twelvedata.com/v1/quotes/price?apikey=...`, using an `action: subscribe` message with a comma-separated symbol list. Its `/price` endpoint provides the latest available price.
-
-## Deployment
-
-The repository is prepared for Vercel's Bun runtime. Add `TWELVEDATA_API_KEY` to the Vercel project's Production environment, then deploy the `main` branch.
-
-The IRENX UI intentionally remains **NO TRADE** when live market data is unavailable; a missing API key must not fabricate a quote or signal.
-
-## Repository
-
-https://github.com/Intrvrt6/IRENX-ai
