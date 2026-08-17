@@ -1,18 +1,13 @@
 name: IRENX Cloudflare Pages
 
 on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - '**/*.md'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: irenx-cloudflare-pages-${{ github.ref }}
+  group: irenx-cloudflare-pages-manual
   cancel-in-progress: true
 
 env:
@@ -22,7 +17,7 @@ env:
 jobs:
   deploy:
     name: Deploy IRENX to Cloudflare Pages
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
@@ -39,21 +34,17 @@ jobs:
           test -n "$CF_API_TOKEN" || { echo 'Missing CLOUDFLARE_API_TOKEN repository secret'; exit 1; }
           test -n "$CF_ACCOUNT_ID" || { echo 'Missing CLOUDFLARE_ACCOUNT_ID repository secret'; exit 1; }
 
-      - name: Verify static site
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f index.html
-          test -s index.html
-          echo "IRENX frontend found: $(wc -c < index.html) bytes"
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: package-lock.json
-        continue-on-error: true
+
+      - name: Verify static site
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s index.html
+          echo "IRENX frontend found: $(wc -c < index.html) bytes"
 
       - name: Install Wrangler
         shell: bash
@@ -69,7 +60,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          if ! wrangler pages project list --format json | grep -Fq '"name":"'"$CLOUDFLARE_PAGES_PROJECT"'"'; then
+          projects="$(wrangler pages project list --format json)"
+          if ! printf '%s' "$projects" | grep -Fq '"name":"'"$CLOUDFLARE_PAGES_PROJECT"'"'; then
             wrangler pages project create "$CLOUDFLARE_PAGES_PROJECT" --production-branch main
           else
             echo "Cloudflare Pages project already exists: $CLOUDFLARE_PAGES_PROJECT"
