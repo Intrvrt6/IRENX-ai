@@ -25,7 +25,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for f in index.html api/index.ts api/ai.ts src/omniroute/core-router.ts vercel.json manifest.webmanifest sw.js offline-engine.js offline.html .github/workflows/cloudflare-pages.yml .github/workflows/irenx-automation.yml; do
+          for f in index.html api/index.ts api/ai.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts vercel.json manifest.webmanifest sw.js offline-engine.js offline.html .github/workflows/cloudflare-pages.yml .github/workflows/irenx-automation.yml; do
             test -s "$f" || { echo "Missing: $f"; exit 1; }
           done
 
@@ -65,6 +65,17 @@ jobs:
           grep -q 'MAX_REQUESTS' src/omniroute/core-router.ts
           grep -q 'MAX_TOKENS' src/omniroute/core-router.ts
           echo 'AI router validation OK'
+
+      - name: Validate OmniCopilot gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'chooseRoute' api/v1/chat/completions.ts
+          grep -q 'X-IRENX-Route' api/v1/chat/completions.ts
+          grep -q 'OMNIROUTE_API_KEY' api/v1/chat/completions.ts
+          grep -q 'OMNIROUTE_BASE_URL' api/v1/models.ts
+          grep -q 'IRENX_GATEWAY_API_KEY' api/v1/models.ts
+          echo 'OmniCopilot gateway validation OK'
 
       - name: Validate API source
         shell: bash
