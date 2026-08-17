@@ -1,3 +1,5 @@
+import { chatThroughOmniRoute, observabilitySnapshot, chooseRoute } from "../src/omniroute/core-router";
+
 const PROVIDER = process.env.MARKET_PROVIDER || "twelvedata";
 const API_KEY = process.env.TWELVEDATA_API_KEY || "";
 const ALLOWED = new Set(["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "NAS100"]);
@@ -17,7 +19,7 @@ let providerReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let providerConnected = false;
 
 function cors(headers: Record<string, string> = {}) {
-  return { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,OPTIONS", "Access-Control-Allow-Headers": "Content-Type", ...headers };
+  return { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", ...headers };
 }
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: cors({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }) });
@@ -80,7 +82,7 @@ async function restQuote(symbol: string): Promise<Quote> {
   return q;
 }
 function health() {
-  return { ok: true, provider: PROVIDER, configured: Boolean(API_KEY), providerWebSocket: providerConnected, clients: clients.size, time: new Date().toISOString() };
+  return { ok: true, provider: PROVIDER, configured: Boolean(API_KEY), providerWebSocket: providerConnected, clients: clients.size, time: new Date().toISOString(), ai: observabilitySnapshot() };
 }
 
 subscribeProvider();
@@ -90,6 +92,28 @@ Bun.serve({
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors() });
     if (url.pathname === "/api/health") return json(health());
+    if (url.pathname === "/api/ai/health") return json({ ok: true, service: "irenx-omniroute-core", ...observabilitySnapshot() });
+    if (url.pathname === "/api/ai/route") {
+      const prompt = url.searchParams.get("prompt") || "";
+      if (!prompt) return json({ error: "prompt is required" }, 400);
+      return json(chooseRoute(prompt));
+    }
+    if (url.pathname === "/api/ai" && request.method === "POST") {
+      try {
+        const body = await request.json();
+        const prompt = typeof body?.prompt === "string" ? body.prompt : "";
+        if (!prompt.trim()) return json({ error: "prompt is required" }, 400);
+        const result = await chatThroughOmniRoute(prompt, {
+          model: typeof body?.model === "string" ? body.model : undefined,
+          tier: typeof body?.tier === "string" ? body.tier : undefined,
+          budgetUsd: Number.isFinite(Number(body?.budgetUsd)) ? Number(body.budgetUsd) : undefined,
+          maxLatencyMs: Number.isFinite(Number(body?.maxLatencyMs)) ? Number(body.maxLatencyMs) : undefined
+        });
+        return json(result);
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : "IRENX AI router failure" }, 502);
+      }
+    }
     if (url.pathname === "/api/market") {
       const symbol = (url.searchParams.get("symbol") || "XAUUSD").toUpperCase();
       if (!ALLOWED.has(symbol)) return json({ error: "Unsupported symbol" }, 400);
@@ -102,7 +126,7 @@ Bun.serve({
       if (!server.upgrade(request)) return new Response("WebSocket upgrade required", { status: 426, headers: cors() });
       return undefined;
     }
-    if (url.pathname === "/api") return json({ service: "IRENX live market gateway", endpoints: ["/api/health", "/api/market?symbol=XAUUSD", "/api/ws"] });
+    if (url.pathname === "/api") return json({ service: "IRENX live market + OmniRoute AI Core", endpoints: ["/api/health", "/api/market?symbol=XAUUSD", "/api/ws", "/api/ai", "/api/ai/health", "/api/ai/route?prompt=..."] });
     return new Response("Not found", { status: 404, headers: cors() });
   },
   websocket: {
