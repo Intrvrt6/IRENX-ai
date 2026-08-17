@@ -25,7 +25,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for f in index.html api/index.ts api/ai.ts api/dify.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts docs/DIFY_INTEGRATION.md vercel.json manifest.webmanifest; do
+          for f in index.html api/index.ts api/ai.ts api/dify.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts docs/DIFY_INTEGRATION.md Dockerfile docker-compose.yml Caddyfile deploy.sh manifest.webmanifest; do
             test -s "$f" || { echo "Missing: $f"; exit 1; }
           done
 
@@ -79,6 +79,17 @@ jobs:
           grep -q 'runDifyChat' api/index.ts
           grep -q 'DIFY_TIMEOUT_MS' .env.example
           echo 'Dify bridge validation OK'
+
+      - name: Validate self-hosted deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'FROM oven/bun' Dockerfile
+          grep -q 'irenx:' docker-compose.yml
+          grep -q 'reverse_proxy irenx:3000' Caddyfile
+          grep -q 'ai.irenx.com' Caddyfile
+          test -x deploy.sh
+          echo 'Self-hosted deployment validation OK'
 
       - name: Validate API source
         shell: bash
