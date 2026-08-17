@@ -1,7 +1,7 @@
 {
   "name": "IRENX PRIME AI",
   "short_name": "IRENX",
-  "description": "IRENX PRIME AI — offline-capable trading intelligence dashboard.",
+  "description": "IRENX PRIME AI — live trading intelligence dashboard.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
