@@ -5,7 +5,7 @@ function json(data: unknown, status = 200) {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET,OPTIONS",
+      "Access-Control-Allow-Methods": "GET,HEAD,OPTIONS",
       "Access-Control-Allow-Headers": "Authorization, Content-Type"
     }
   });
@@ -38,6 +38,11 @@ export async function GET(request: Request) {
   } catch (error) {
     return json({ error: { message: error instanceof Error ? error.message : "OmniRoute model discovery failed", type: "upstream_error" } }, 502);
   }
+}
+
+export async function HEAD(request: Request) {
+  const response = await GET(request);
+  return new Response(null, { status: response.status, headers: response.headers });
 }
 
 export async function OPTIONS() {
