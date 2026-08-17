@@ -25,9 +25,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for f in index.html api/index.ts api/ai.ts api/dify.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts docs/DIFY_INTEGRATION.md Dockerfile docker-compose.yml Caddyfile deploy.sh manifest.webmanifest; do
+          for f in index.html api/index.ts api/ai.ts api/dify.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts docs/DIFY_INTEGRATION.md docs/CLOUDFLARE_DEPLOYMENT.md Dockerfile docker-compose.yml Caddyfile deploy.sh manifest.webmanifest; do
             test -s "$f" || { echo "Missing: $f"; exit 1; }
           done
+          test ! -e vercel.json
+          echo 'Self-hosted deployment layout OK'
 
       - name: Secret scan (tracked source only)
         shell: bash
@@ -84,12 +86,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'FROM oven/bun' Dockerfile
-          grep -q 'irenx:' docker-compose.yml
-          grep -q 'reverse_proxy irenx:3000' Caddyfile
           grep -q 'ai.irenx.com' Caddyfile
-          bash -n deploy.sh
-          echo 'Self-hosted deployment validation OK'
+          grep -q '127.0.0.1:3000:3000' docker-compose.yml
+          grep -q 'service_healthy' docker-compose.yml
+          grep -q 'docker compose up -d --build' deploy.sh
+          grep -q 'https://$DOMAIN/api/health' deploy.sh
+          echo 'Cloudflare/self-hosted deployment validation OK'
 
       - name: Validate API source
         shell: bash
