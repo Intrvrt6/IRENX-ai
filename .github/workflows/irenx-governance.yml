@@ -1,0 +1,45 @@
+name: IRENX Governance
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  governance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate PR governance
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            if [[ -z "$PR_TITLE" ]]; then
+              echo 'PR title must not be empty.'
+              exit 1
+            fi
+            if ! grep -Eiq '(#8|closes|fixes|resolves)' <<< "$PR_BODY"; then
+              echo 'PR must reference an issue using #N or closes/fixes/resolves syntax.'
+              exit 1
+            fi
+          fi
+          echo 'Governance gate passed.'
+
+      - name: Validate production architecture markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s wrangler.toml
+          grep -q 'ai.irenx.com' wrangler.toml
+          test ! -e vercel.json
+          echo 'Cloudflare-native production markers passed.'
