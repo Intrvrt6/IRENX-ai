@@ -25,18 +25,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for f in index.html api/index.ts api/ai.ts api/dify.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts mcp/irenx.ts worker/index.ts package.json wrangler.toml docs/DIFY_INTEGRATION.md docs/CLOUDFLARE_DEPLOYMENT.md docs/CLOUDFLARE_NATIVE.md manifest.webmanifest; do
+          for f in index.html api/index.ts api/ai.ts api/dify.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts mcp/irenx.ts worker/index.ts package.json wrangler.toml docs/DIFY_INTEGRATION.md docs/CLOUDFLARE_NATIVE.md manifest.webmanifest; do
             test -s "$f" || { echo "Missing: $f"; exit 1; }
           done
           test ! -e vercel.json
           echo 'IRENX source layout OK'
 
-      - name: Secret scan (tracked source only)
+      - name: Secret scan
         shell: bash
         run: |
           set -euo pipefail
           findings="$(git grep -nE '(sk-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{20,}|-----BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY-----|TWELVEDATA_API_KEY=[^[:space:]]+|CLOUDFLARE_API_TOKEN=[^[:space:]]+)' -- ':!.github/**' ':!docs/**' ':!*.md' ':!.env.example' ':!.claude/**' || true)"
-          findings="$(printf '%s\n' "$findings" | grep -vF 'sk-dummy-key-to-bypass-oauth' || true)"
           if [[ -n "$findings" ]]; then
             printf '%s\n' "$findings"
             echo 'Potential real secret detected in tracked source files.'
@@ -44,7 +43,7 @@ jobs:
           fi
           echo 'Secret scan OK'
 
-      - name: Validate AI router integration
+      - name: Validate AI router
         shell: bash
         run: |
           set -euo pipefail
@@ -110,23 +109,17 @@ jobs:
           grep -q 'DIFY_BASE_URL' worker/index.ts
           echo 'Cloudflare-native Worker validation OK'
 
-      - name: Validate self-hosted migration files
+      - name: Validate Cloudflare deployment workflow
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'ai.irenx.com' Caddyfile
-          grep -q '127.0.0.1:3000:3000' docker-compose.yml
-          grep -q 'service_healthy' docker-compose.yml
-          grep -q 'image: irenx-ai:latest' docker-compose.yml
-          grep -q 'docker compose up -d' deploy.sh
-          bash -n deploy.sh
-          docker compose config -q
-          echo 'Legacy self-hosted migration files remain syntactically valid'
+          test -s .github/workflows/cloudflare-deploy.yml
+          grep -q 'wrangler' .github/workflows/cloudflare-deploy.yml
+          grep -q 'CLOUDFLARE_API_TOKEN' .github/workflows/cloudflare-deploy.yml
+          grep -q 'CLOUDFLARE_ACCOUNT_ID' .github/workflows/cloudflare-deploy.yml
+          echo 'Cloudflare deployment workflow validation OK'
 
-      - name: Build IRENX container
-        run: docker build --pull --tag irenx-ci:test .
-
-      - name: Validate Worker dependency graph
+      - name: Validate Wrangler dependency graph
         run: |
           npm install --ignore-scripts
           npx wrangler deploy --dry-run
