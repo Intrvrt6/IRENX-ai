@@ -25,6 +25,27 @@ The Rust runtime is initially a canary/build artifact. Production traffic remain
 
 Only after those gates should `/v1/*` traffic be migrated behind the Rust layer.
 
+## Code Search & Security Audit
+
+Use GitHub Code Search syntax to inspect the IRENX repository for security-sensitive surfaces. These queries are also useful when reviewing a PR branch locally or through GitHub's repository search tooling:
+
+```text
+repo:Intrvrt6/IRENX-ai (Authorization OR JWT OR Bearer OR authenticate)
+repo:Intrvrt6/IRENX-ai language:rust (Authorization OR secret OR token OR credential)
+repo:Intrvrt6/IRENX-ai (OMNIROUTE_API_KEY OR OMNIROUTE_BASE_URL)
+repo:Intrvrt6/IRENX-ai (v1/chat/completions OR v1/models OR api/health)
+repo:Intrvrt6/IRENX-ai path:.github/workflows
+repo:Intrvrt6/IRENX-ai (TODO OR FIXME)
+```
+
+For credential hunting, prefer regex queries when appropriate:
+
+```text
+repo:Intrvrt6/IRENX-ai /sk-[A-Za-z0-9_-]{20,}/
+```
+
+GitHub Code Search indexes the default branch, so branch-specific validation for `upgrade/irenx-rust-edge-v4` is enforced in CI as `git grep` over the checked-out PR revision. The `IRENX Code Search Audit` workflow performs credential-pattern checks, Rust security-surface inspection, gateway routing-surface inspection, and documentation validation.
+
 ## Security boundary
 
 Provider credentials must remain Cloudflare secrets. They must never be committed to source or GitHub Actions YAML.
