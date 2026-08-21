@@ -1,6 +1,63 @@
 # IRENX-ai
 
-IRENX PRIME AI — self-hosted live web terminal with server-side market data, OmniRoute AI routing, OmniCopilot compatibility, and Dify integration.
+IRENX PRIME AI — self-hosted live web terminal with server-side market data, OmniRoute AI routing, OmniCopilot compatibility, Dify integration, and a controlled Cloudflare Rust/WASM edge runtime.
+
+## Canonical repository order
+
+IRENX follows this dependency direction. New code should be placed in the lowest appropriate layer and must not bypass the gateway boundary.
+
+```text
+1. UI / entrypoint
+   index.html
+
+2. Public API surface
+   api/
+   api/index.ts
+   api/v1/
+
+3. Domain routing / intelligence
+   src/omniroute/
+
+4. Integrations
+   api/dify.ts
+   mcp/
+   worker/
+
+5. Rust edge runtime (canary only)
+   rust/
+
+6. Deployment / infrastructure
+   wrangler.toml
+   Dockerfile
+   docker-compose.yml
+   Caddyfile
+   deploy.sh
+
+7. Automation / CI
+   .github/workflows/
+
+8. Documentation / operational policy
+   docs/
+   README.md
+   PR-READY.md
+   IRENX_READY.md
+```
+
+### Runtime authority
+
+```text
+Client
+  ↓
+Public API / OpenAI-compatible gateway
+  ↓
+IRENX Core Router
+  ↓
+OmniRoute / provider fallback
+  ↓
+External AI providers
+```
+
+The Rust/WASM Worker is an **edge-runtime canary**. It does not replace the production TypeScript Worker until formatting, Clippy, WASM build, Wrangler dry-run, authentication, integration, and smoke tests pass.
 
 ## Architecture
 - `index.html` — IRENX PRIME AI black-terminal UI.
@@ -8,6 +65,9 @@ IRENX PRIME AI — self-hosted live web terminal with server-side market data, O
 - `src/omniroute/core-router.ts` — IRENX OmniRoute Core Router V2: task-aware routing policy, scoring telemetry, quota/budget guards, circuit breaker, timeout, and observability.
 - `api/v1/models.ts` + `api/v1/chat/completions.ts` — OpenAI-compatible IRENX gateway for OmniCopilot and other compatible clients.
 - `api/dify.ts` — server-side Dify bridge for workflows and chat.
+- `mcp/` — MCP integration surface.
+- `worker/` — Cloudflare-native TypeScript Worker and Remote MCP surface.
+- `rust/` — controlled Cloudflare Workers Rust/WASM canary runtime.
 - `Dockerfile` + `docker-compose.yml` — self-hosted Bun deployment.
 - `Caddyfile` — automatic HTTPS reverse proxy for `ai.irenx.com`.
 - `deploy.sh` — deployment/health-check helper.

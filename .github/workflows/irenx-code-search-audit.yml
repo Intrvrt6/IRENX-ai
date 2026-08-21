@@ -1,0 +1,80 @@
+name: IRENX Code Search Audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: irenx-code-search-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  code-search-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Audit authentication and credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '== Authentication/credential references =='
+          git grep -nE '(Authorization|Bearer|JWT|credential|token|password|secret|API_KEY)' -- \
+            '*.ts' '*.tsx' '*.js' '*.mjs' '*.rs' '*.toml' '*.yml' '*.yaml' '*.sh' \
+            ':!docs/**' ':!node_modules/**' ':!.git/**' || true
+
+      - name: Fail on high-confidence tracked secret patterns
+        shell: bash
+        run: |
+          set -euo pipefail
+          findings="$(git grep -nE '(sk-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{20,}|-----BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY-----|CLOUDFLARE_API_TOKEN=[^[:space:]]+|TWELVEDATA_API_KEY=[^[:space:]]+)' -- \
+            ':!.github/**' ':!docs/**' ':!*.md' ':!.env.example' ':!.claude/**' ':!package-lock.json' ':!scripts/setup-claude-omniroute.sh' || true)"
+          if [[ -n "$findings" ]]; then
+            printf '%s\n' "$findings"
+            echo 'High-confidence secret pattern detected in tracked source.'
+            exit 1
+          fi
+          echo 'High-confidence secret scan passed.'
+
+      - name: Audit Rust security-sensitive paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find rust -type f -print -quit 2>/dev/null | grep -q .; then
+            grep -RInE '(Authorization|Bearer|secret|token|credential|env::|Env)' rust \
+              --include='*.rs' --include='*.toml' || true
+          else
+            echo 'No rust/ directory present.'
+          fi
+
+      - name: Audit gateway routing surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          for needle in 'v1/chat/completions' 'v1/models' 'api/health' 'OMNIROUTE' 'DIFY' 'createMcpHandler'; do
+            echo "== $needle =="
+            git grep -nF "$needle" -- \
+              '*.ts' '*.tsx' '*.js' '*.mjs' '*.rs' '*.toml' '*.yml' '*.yaml' || true
+          done
+
+      - name: Audit search-query documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s docs/IRENX_RUST_EDGE_V4.md
+          grep -q 'repo:Intrvrt6/IRENX-ai' docs/IRENX_RUST_EDGE_V4.md
+          grep -q 'language:rust' docs/IRENX_RUST_EDGE_V4.md
+          grep -q 'OMNIROUTE_API_KEY' docs/IRENX_RUST_EDGE_V4.md
+          echo 'IRENX code-search audit documentation present.'
+
+      - name: Audit complete
+        run: echo 'IRENX Code Search Audit PASS'

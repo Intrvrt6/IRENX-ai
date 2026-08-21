@@ -1,0 +1,56 @@
+name: IRENX Rust Edge
+
+on:
+  pull_request:
+    paths:
+      - 'rust/**'
+      - '.github/workflows/irenx-rust-edge.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'rust/**'
+      - '.github/workflows/irenx-rust-edge.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: irenx-rust-edge-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Build WASM
+        run: cargo build --release --target wasm32-unknown-unknown
+
+      - name: Install worker-build
+        run: cargo install worker-build --locked
+
+      - name: Wrangler dry run
+        run: npx --yes wrangler deploy --config wrangler.toml --dry-run
