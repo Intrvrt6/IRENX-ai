@@ -12,20 +12,36 @@ concurrency:
   group: irenx-cloudflare-production
   cancel-in-progress: true
 
+env:
+  NODE_VERSION: "22"
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout
+        uses: actions/checkout@v6
 
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
       - name: Install dependencies
-        run: npm install --ignore-scripts
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Validate deployment secrets
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo 'Missing GitHub Actions secret: CLOUDFLARE_API_TOKEN'; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo 'Missing GitHub Actions secret: CLOUDFLARE_ACCOUNT_ID'; exit 1; }
+          echo 'Cloudflare deployment secrets are configured.'
 
       - name: Validate Worker configuration
         run: npx wrangler deploy --dry-run
@@ -38,11 +54,17 @@ jobs:
           command: deploy
 
       - name: Smoke test production
+        shell: bash
         run: |
           set -euo pipefail
           for i in {1..12}; do
             if curl -fsS --connect-timeout 5 --max-time 15 https://ai.irenx.com/api/health; then
-              exit 0
+              echo
+              if curl -fsS --connect-timeout 5 --max-time 15 https://ai.irenx.com/api/infra/cloudflare; then
+                echo
+                echo 'IRENX production health checks passed.'
+                exit 0
+              fi
             fi
             sleep 5
           done
