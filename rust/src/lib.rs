@@ -26,7 +26,10 @@ fn cors(response: &mut Response) -> Result<()> {
     let headers = response.headers_mut();
     headers.set("access-control-allow-origin", "*")?;
     headers.set("access-control-allow-methods", "GET,POST,OPTIONS")?;
-    headers.set("access-control-allow-headers", "Authorization,Content-Type,X-Request-Id")?;
+    headers.set(
+        "access-control-allow-headers",
+        "Authorization,Content-Type,X-Request-Id",
+    )?;
     headers.set("x-content-type-options", "nosniff")?;
     headers.set("referrer-policy", "no-referrer")?;
     Ok(())
@@ -44,17 +47,22 @@ pub async fn main(req: Request, _env: Env, _ctx: Context) -> Result<Response> {
     }
 
     if url.path() == "/api/health" || url.path() == "/health" {
-        let mut response = json(&Health {
-            ok: true,
-            service: "irenx-rust-edge",
-            version: "4.0.0",
-            runtime: "cloudflare-workers-rust-wasm",
-        }, 200)?;
+        let mut response = json(
+            &Health {
+                ok: true,
+                service: "irenx-rust-edge",
+                version: "4.0.0",
+                runtime: "cloudflare-workers-rust-wasm",
+            },
+            200,
+        )?;
         cors(&mut response)?;
         return Ok(response);
     }
 
-    let body = ErrorBody { error: "Rust edge runtime is installed and healthy; traffic cutover is controlled by the IRENX gateway." };
+    let body = ErrorBody {
+        error: "Rust edge runtime is installed and healthy; traffic cutover is controlled by the IRENX gateway.",
+    };
     let mut response = json(&body, 404)?;
     cors(&mut response)?;
     Ok(response)
