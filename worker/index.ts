@@ -22,6 +22,7 @@ type Env = {
   OMNIROUTE_API_KEY?: string;
   DIFY_BASE_URL?: string;
   DIFY_API_KEY?: string;
+  GITHUB_WEBHOOK_SECRET?: string;
 };
 
 type ProviderMetric = { requests: number; successes: number; failures: number; latency: number; consecutiveFailures: number; openedAt: number; spend: number };
@@ -44,6 +45,50 @@ function classify(prompt: string) { const p = prompt.toLowerCase(); if (/\b(code
 function estimateTokens(text: string) { return Math.max(1, Math.ceil(text.length / 4)); }
 function estimateCost(input: number, output: number, env: Env) { return input / 1e6 * envNum(env, "IRENX_INPUT_USD_PER_1M", 3) + output / 1e6 * envNum(env, "IRENX_OUTPUT_USD_PER_1M", 15); }
 function json(data: unknown, status = 200) { return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*" } }); }
+
+function bytesToHex(bytes: ArrayBuffer) { return Array.from(new Uint8Array(bytes)).map((b) => b.toString(16).padStart(2, "0")).join(""); }
+
+async function verifyGitHubSignature(body: string, signature: string | null, secret: string) {
+  if (!signature?.startsWith("sha256=") || !secret) return false;
+  const expected = signature.slice(7);
+  if (!/^[0-9a-f]{64}$/i.test(expected)) return false;
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const digest = bytesToHex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body)));
+  if (digest.length !== expected.length) return false;
+  let diff = 0;
+  for (let i = 0; i < digest.length; i++) diff |= digest.charCodeAt(i) ^ expected.toLowerCase().charCodeAt(i);
+  return diff === 0;
+}
+
+async function handleGitHubWebhook(request: Request, env: Env) {
+  if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { allow: "POST" } });
+  if (!env.GITHUB_WEBHOOK_SECRET) return json({ error: "GitHub webhook secret is not configured" }, 503);
+  const body = await request.text();
+  const signature = request.headers.get("X-Hub-Signature-256");
+  const delivery = request.headers.get("X-GitHub-Delivery");
+  const event = request.headers.get("X-GitHub-Event");
+  if (!delivery || !event) return json({ error: "Missing GitHub webhook headers" }, 400);
+  if (!(await verifyGitHubSignature(body, signature, env.GITHUB_WEBHOOK_SECRET))) return json({ error: "Invalid signature" }, 401);
+  let payload: any;
+  try { payload = JSON.parse(body); } catch { return json({ error: "Invalid JSON" }, 400); }
+  if (payload.repository?.full_name !== "Intrvrt6/IRENX-ai") return json({ ok: true, ignored: true, reason: "repository" });
+  const prNumber = payload.pull_request?.number ?? payload.workflow_run?.pull_requests?.[0]?.number ?? null;
+  if (prNumber !== null && prNumber !== 15) return json({ ok: true, ignored: true, reason: "pull_request", prNumber });
+  const workflowRun = payload.workflow_run;
+  const deployment = payload.deployment_status;
+  const result = {
+    ok: true,
+    event,
+    delivery,
+    repository: payload.repository.full_name,
+    pullRequest: prNumber,
+    action: payload.action ?? null,
+    ci: workflowRun ? { name: workflowRun.name, status: workflowRun.status, conclusion: workflowRun.conclusion, sha: workflowRun.head_sha, runId: workflowRun.id } : null,
+    deployment: deployment ? { state: deployment.state, environment: deployment.environment ?? null, targetUrl: deployment.target_url ?? null } : null,
+    receivedAt: new Date().toISOString()
+  };
+  return json(result, 202);
+}
 
 async function routeOpenAI(prompt: string, env: Env) {
   const key = env.OPENAI_API_KEY || "";
@@ -72,11 +117,7 @@ async function routeOpenAI(prompt: string, env: Env) {
       method: "POST",
       signal: controller.signal,
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({
-        model,
-        tools: [{ type: "web_search", search_context_size: context }],
-        input: prompt
-      })
+      body: JSON.stringify({ model, tools: [{ type: "web_search", search_context_size: context }], input: prompt })
     });
     const latency = Date.now() - started;
     m.latency += latency;
@@ -153,10 +194,11 @@ const mcpHandler = createMcpHandler(createMcpServer, { route: "/mcp", allowedHos
 
 export default { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
   const url = new URL(request.url);
+  if (url.pathname === "/api/webhooks/github") return handleGitHubWebhook(request, env);
   if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) return mcpHandler(request, env, ctx);
-  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "Content-Type, Authorization, Mcp-Session-Id" } });
-  if (url.pathname === "/" || url.pathname === "/api") return json({ service: "IRENX Cloudflare-native", version: "1.1.0", endpoints: ["/api/health", "/api/ai/route", "/api/ai", "/api/dify/health", "/mcp"] });
-  if (url.pathname === "/api/health") return json({ ok: true, service: "irenx-cloudflare", environment: env.IRENX_ENV, domain: env.IRENX_PUBLIC_ORIGIN, mcp: "/mcp", upstreams: { openai: Boolean(env.OPENAI_API_KEY), omniroute: Boolean(env.OMNIROUTE_BASE_URL && env.OMNIROUTE_API_KEY), dify: Boolean(env.DIFY_BASE_URL && env.DIFY_API_KEY) }, totals: { requests: totalRequests, tokens: totalTokens, estimatedSpendUsd: Number(totalSpend.toFixed(6)) }, time: new Date().toISOString() });
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "Content-Type, Authorization, Mcp-Session-Id, X-Hub-Signature-256, X-GitHub-Delivery, X-GitHub-Event" } });
+  if (url.pathname === "/" || url.pathname === "/api") return json({ service: "IRENX Cloudflare-native", version: "1.1.0", endpoints: ["/api/health", "/api/webhooks/github", "/api/ai/route", "/api/ai", "/api/dify/health", "/mcp"] });
+  if (url.pathname === "/api/health") return json({ ok: true, service: "irenx-cloudflare", environment: env.IRENX_ENV, domain: env.IRENX_PUBLIC_ORIGIN, mcp: "/mcp", webhooks: { github: "/api/webhooks/github", configured: Boolean(env.GITHUB_WEBHOOK_SECRET) }, upstreams: { openai: Boolean(env.OPENAI_API_KEY), omniroute: Boolean(env.OMNIROUTE_BASE_URL && env.OMNIROUTE_API_KEY), dify: Boolean(env.DIFY_BASE_URL && env.DIFY_API_KEY) }, totals: { requests: totalRequests, tokens: totalTokens, estimatedSpendUsd: Number(totalSpend.toFixed(6)) }, time: new Date().toISOString() });
   if (url.pathname === "/api/ai/route") { const prompt = url.searchParams.get("prompt") || ""; if (!prompt) return json({ error: "prompt is required" }, 400); return json({ task: classify(prompt), route: env.OPENAI_API_KEY ? (env.IRENX_OPENAI_MODEL || "gpt-5.6") : classify(prompt) === "coding" ? "auto/coding:pro" : classify(prompt) === "trading" ? "auto/reasoning:pro" : "auto", webSearch: Boolean(env.OPENAI_API_KEY) }); }
   if (url.pathname === "/api/ai" && request.method === "POST") { try { const body: any = await request.json(); const prompt = typeof body?.prompt === "string" ? body.prompt : ""; if (!prompt.trim()) return json({ error: "prompt is required" }, 400); return json(await routeAI(prompt, env, typeof body?.model === "string" ? body.model : undefined)); } catch (e) { return json({ error: e instanceof Error ? e.message : "IRENX AI failure" }, 502); } }
   if (url.pathname === "/api/dify/health") return json({ ok: Boolean(env.DIFY_BASE_URL && env.DIFY_API_KEY), configured: Boolean(env.DIFY_BASE_URL && env.DIFY_API_KEY), baseUrl: env.DIFY_BASE_URL || null });
