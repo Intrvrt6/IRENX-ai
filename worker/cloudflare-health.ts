@@ -14,6 +14,7 @@ export type CloudflareHealth = {
 
 const STATUS_URL = "https://www.cloudflarestatus.com/api/v2/summary.json";
 const CACHE_MS = 30_000;
+const REQUEST_TIMEOUT_MS = 10_000;
 let cached: { value: CloudflareHealth; expiresAt: number } | null = null;
 
 function mapIndicator(value: unknown): CloudflareHealth["indicator"] {
@@ -31,19 +32,28 @@ export async function getCloudflareHealth(force = false): Promise<CloudflareHeal
   const now = Date.now();
   if (!force && cached && cached.expiresAt > now) return cached.value;
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
   try {
     const response = await fetch(STATUS_URL, {
-      headers: { accept: "application/json", "user-agent": "IRENX-Cloudflare-Health/1.0" },
-      cf: { cacheTtl: 30, cacheEverything: true }
-    } as RequestInit);
+      headers: {
+        accept: "application/json",
+        "user-agent": "IRENX-Cloudflare-Health/1.1"
+      },
+      signal: controller.signal
+    });
 
     if (!response.ok) throw new Error(`Cloudflare status HTTP ${response.status}`);
+
     const payload: any = await response.json();
     const indicator = mapIndicator(payload?.status?.indicator);
     const components = Array.isArray(payload?.components) ? payload.components : [];
     const incidents = Array.isArray(payload?.incidents) ? payload.incidents : [];
     const maintenances = Array.isArray(payload?.scheduled_maintenances) ? payload.scheduled_maintenances : [];
-    const degradedComponents = components.filter((component: any) => component?.status && component.status !== "operational").length;
+    const degradedComponents = components.filter(
+      (component: any) => component?.status && component.status !== "operational"
+    ).length;
 
     const value: CloudflareHealth = {
       ok: indicator === "none" || indicator === "minor",
@@ -76,5 +86,7 @@ export async function getCloudflareHealth(force = false): Promise<CloudflareHeal
     };
     cached = { value, expiresAt: now + 10_000 };
     return value;
+  } finally {
+    clearTimeout(timer);
   }
 }
