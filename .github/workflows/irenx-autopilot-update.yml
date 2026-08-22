@@ -1,0 +1,75 @@
+name: IRENX Autopilot Update
+
+on:
+  schedule:
+    - cron: "17 2 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: irenx-autopilot-update
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Refresh dependencies
+        run: npm update --ignore-scripts
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Validate Worker configuration
+        run: npx wrangler deploy --dry-run
+
+      - name: Detect changes
+        id: changes
+        shell: bash
+        run: |
+          if git diff --quiet && git ls-files --others --exclude-standard | grep -q .; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create update branch and PR
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BRANCH="automation/autopilot-${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add package.json package-lock.json
+          git commit -m "chore: autopilot dependency refresh"
+          git push --set-upstream origin "$BRANCH"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore: autopilot dependency refresh" \
+            --body "Automated IRENX dependency refresh. Typecheck and Cloudflare Worker dry-run passed before opening this PR. Merge only after CI is green."
+
+      - name: No update required
+        if: steps.changes.outputs.changed == 'false'
+        run: echo "IRENX dependencies are already current; no PR created."
