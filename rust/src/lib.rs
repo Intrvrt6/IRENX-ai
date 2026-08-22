@@ -35,12 +35,19 @@ fn security_headers(response: &mut Response) -> Result<()> {
 }
 
 fn cors(response: &mut Response, env: &Env) -> Result<()> {
-    let origin = env.var("IRENX_PUBLIC_ORIGIN").map(|v| v.to_string()).unwrap_or_else(|_| "https://ai.irenx.com".to_string());
-    let headers = response.headers_mut();
-    headers.set("access-control-allow-origin", &origin)?;
-    headers.set("access-control-allow-methods", "GET,OPTIONS")?;
-    headers.set("access-control-allow-headers", "Content-Type,X-Request-Id")?;
-    headers.set("vary", "Origin")?;
+    let origin = env
+        .var("IRENX_PUBLIC_ORIGIN")
+        .map(|value| value.to_string())
+        .unwrap_or_else(|_| "https://ai.irenx.com".to_string());
+
+    {
+        let headers = response.headers_mut();
+        headers.set("access-control-allow-origin", &origin)?;
+        headers.set("access-control-allow-methods", "GET,OPTIONS")?;
+        headers.set("access-control-allow-headers", "Content-Type,X-Request-Id")?;
+        headers.set("vary", "Origin")?;
+    }
+
     security_headers(response)?;
     Ok(())
 }
