@@ -1,5 +1,6 @@
 import { chatThroughOmniRoute, observabilitySnapshot, chooseRoute } from "../src/omniroute/core-router";
 import { difyConfigured, runDifyChat, runDifyWorkflow } from "./dify";
+import { odooCall, odooCreate, odooHealth, odooRead, odooSearchRead, odooConfigured, pushIrenxSignal } from "./odoo";
 import { createIrenxMcpHandler } from "../mcp/irenx";
 
 const MCP_HANDLER = createIrenxMcpHandler();
@@ -73,7 +74,7 @@ async function restQuote(symbol: string): Promise<Quote> {
   return q;
 }
 function health() {
-  return { ok: true, provider: PROVIDER, configured: Boolean(API_KEY), providerWebSocket: providerConnected, clients: clients.size, time: new Date().toISOString(), dify: { configured: difyConfigured(), baseUrl: process.env.DIFY_BASE_URL || "http://127.0.0.1:5001" }, ai: observabilitySnapshot(), mcp: { enabled: true, endpoint: "/mcp" } };
+  return { ok: true, provider: PROVIDER, configured: Boolean(API_KEY), providerWebSocket: providerConnected, clients: clients.size, time: new Date().toISOString(), dify: { configured: difyConfigured(), baseUrl: process.env.DIFY_BASE_URL || "http://127.0.0.1:5001" }, odoo: { configured: odooConfigured(), baseUrl: process.env.ODOO_BASE_URL || null }, ai: observabilitySnapshot(), mcp: { enabled: true, endpoint: "/mcp" } };
 }
 function staticFile(pathname: string): Response | null {
   const files: Record<string, string> = { "/": "index.html", "/index.html": "index.html", "/manifest.webmanifest": "manifest.webmanifest" };
@@ -92,7 +93,7 @@ Bun.serve({
     if (url.pathname === "/mcp" || url.pathname === "/mcp/") return MCP_HANDLER.fetch(request);
     if (url.pathname.startsWith("/mcp/docs/")) {
       const id = decodeURIComponent(url.pathname.slice("/mcp/docs/".length));
-      const map: Record<string, string> = { readme: "README.md", "dify-integration": "docs/DIFY_INTEGRATION.md", "cloudflare-deployment": "docs/CLOUDFLARE_DEPLOYMENT.md", "ci-verification": "docs/CI-VERIFICATION.md", automation: "AUTOMATION.md" };
+      const map: Record<string, string> = { readme: "README.md", "dify-integration": "docs/DIFY_INTEGRATION.md", "cloudflare-deployment": "docs/CLOUDFLARE_DEPLOYMENT.md", "ci-verification": "docs/CI-VERIFICATION.md", automation: "AUTOMATION.md", odoo: "docs/ODOO_INTEGRATION.md" };
       const path = map[id];
       if (!path) return new Response("Not found", { status: 404, headers: cors() });
       const file = Bun.file(path);
@@ -104,6 +105,7 @@ Bun.serve({
     if (url.pathname === "/api/health") return json(health());
     if (url.pathname === "/api/ai/health") return json({ ok: true, service: "irenx-omniroute-core", ...observabilitySnapshot() });
     if (url.pathname === "/api/dify/health") return json({ ok: difyConfigured(), service: "irenx-dify-bridge", configured: difyConfigured(), baseUrl: process.env.DIFY_BASE_URL || "http://127.0.0.1:5001" });
+    if (url.pathname === "/api/odoo/health") return json(await odooHealth());
     if (url.pathname === "/api/ai/route") { const prompt = url.searchParams.get("prompt") || ""; if (!prompt) return json({ error: "prompt is required" }, 400); return json(chooseRoute(prompt)); }
     if (url.pathname === "/api/ai" && request.method === "POST") {
       try {
@@ -113,9 +115,24 @@ Bun.serve({
     }
     if (url.pathname === "/api/dify/workflows/run" && request.method === "POST") { try { const body = await request.json(); return json(await runDifyWorkflow({ inputs: body?.inputs, user: body?.user, responseMode: body?.response_mode === "streaming" ? "streaming" : "blocking" })); } catch (error) { return json({ error: error instanceof Error ? error.message : "Dify workflow failure" }, 502); } }
     if (url.pathname === "/api/dify/chat-messages" && request.method === "POST") { try { const body = await request.json(); const query = typeof body?.query === "string" ? body.query : ""; if (!query.trim()) return json({ error: "query is required" }, 400); return json(await runDifyChat({ query, user: body?.user, conversationId: body?.conversation_id, inputs: body?.inputs, responseMode: body?.response_mode === "streaming" ? "streaming" : "blocking" })); } catch (error) { return json({ error: error instanceof Error ? error.message : "Dify chat failure" }, 502); } }
+    if (url.pathname === "/api/odoo/model" && request.method === "POST") {
+      try { const body = await request.json(); return json(await odooCall(body)); } catch (error) { return json({ error: error instanceof Error ? error.message : "Odoo API failure" }, 502); }
+    }
+    if (url.pathname === "/api/odoo/search" && request.method === "POST") {
+      try { const body = await request.json(); return json(await odooSearchRead(String(body?.model || ""), Array.isArray(body?.domain) ? body.domain : [], Array.isArray(body?.fields) ? body.fields : [], Number(body?.limit || 50))); } catch (error) { return json({ error: error instanceof Error ? error.message : "Odoo search failure" }, 502); }
+    }
+    if (url.pathname === "/api/odoo/read" && request.method === "POST") {
+      try { const body = await request.json(); if (!Array.isArray(body?.ids)) return json({ error: "ids is required" }, 400); return json(await odooRead(String(body?.model || ""), body.ids.map(Number), Array.isArray(body?.fields) ? body.fields : [])); } catch (error) { return json({ error: error instanceof Error ? error.message : "Odoo read failure" }, 502); }
+    }
+    if (url.pathname === "/api/odoo/create" && request.method === "POST") {
+      try { const body = await request.json(); if (!body?.values || typeof body.values !== "object") return json({ error: "values is required" }, 400); return json(await odooCreate(String(body?.model || ""), body.values)); } catch (error) { return json({ error: error instanceof Error ? error.message : "Odoo create failure" }, 502); }
+    }
+    if (url.pathname === "/api/odoo/signal" && request.method === "POST") {
+      try { const body = await request.json(); if (!body?.symbol || !body?.status) return json({ error: "symbol and status are required" }, 400); return json(await pushIrenxSignal(body)); } catch (error) { return json({ error: error instanceof Error ? error.message : "Odoo signal sync failure" }, 502); }
+    }
     if (url.pathname === "/api/market") { const symbol = (url.searchParams.get("symbol") || "XAUUSD").toUpperCase(); if (!ALLOWED.has(symbol)) return json({ error: "Unsupported symbol" }, 400); const cached = latest.get(symbol); if (cached) return json(cached); try { return json(await restQuote(symbol)); } catch (error) { return json({ error: error instanceof Error ? error.message : "market data unavailable" }, 503); } }
     if (url.pathname === "/api/ws") { if (!server.upgrade(request)) return new Response("WebSocket upgrade required", { status: 426, headers: cors() }); return undefined; }
-    if (url.pathname === "/api") return json({ service: "IRENX live market + OmniRoute AI Core + Dify + MCP", endpoints: ["/api/health", "/api/market?symbol=XAUUSD", "/api/ws", "/api/ai", "/api/ai/health", "/api/ai/route?prompt=...", "/api/dify/health", "/api/dify/workflows/run", "/api/dify/chat-messages", "/mcp"] });
+    if (url.pathname === "/api") return json({ service: "IRENX live market + OmniRoute AI Core + Dify + Odoo + MCP", endpoints: ["/api/health", "/api/market?symbol=XAUUSD", "/api/ws", "/api/ai", "/api/ai/health", "/api/ai/route?prompt=...", "/api/dify/health", "/api/dify/workflows/run", "/api/dify/chat-messages", "/api/odoo/health", "/api/odoo/model", "/api/odoo/search", "/api/odoo/read", "/api/odoo/create", "/api/odoo/signal", "/mcp"] });
     return new Response("Not found", { status: 404, headers: cors() });
   },
   websocket: {
