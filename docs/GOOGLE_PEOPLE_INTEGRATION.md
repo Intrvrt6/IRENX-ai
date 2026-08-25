@@ -24,7 +24,7 @@ For contact management/write operations, use:
 
 `https://www.googleapis.com/auth/contacts`
 
-Google's `people.connections.list` requires `personFields` and supports pagination and incremental synchronization. Sync tokens expire after 7 days; an expired token requires a new full sync. citeturn0search0turn0search2
+Google's `people.connections.list` requires `personFields` and supports pagination and incremental synchronization. Sync tokens expire after 7 days; an expired token requires a new full sync.
 
 ## Endpoints
 
@@ -52,4 +52,4 @@ Supported query parameters include `pageToken`, `pageSize`, `requestSyncToken`, 
 - Request the minimum OAuth scope required.
 - Do not forward the Google access token to frontend code.
 
-Google's People API returns private contact data only after the authenticated user grants the relevant OAuth scope. citeturn0search1turn0search6
+Google's People API returns private contact data only after the authenticated user grants the relevant OAuth scope.
