@@ -98,10 +98,13 @@ export function odooRead(model: string, ids: number[], fields: string[] = []) {
   return callOdoo(model, "read", { ids, fields });
 }
 
-/**
- * Automatically persists an IRENX SIGNAL into the installed Odoo journal module.
- * The custom module exposes create_from_irenx() so retries are idempotent.
- */
+function odooDatetime(value: string) {
+  const date = new Date(value);
+  if (!Number.isNaN(date.getTime())) return date.toISOString().slice(0, 19).replace("T", " ");
+  return value.replace("T", " ").replace(/Z$/, "").slice(0, 19);
+}
+
+/** Automatically persists an IRENX SIGNAL into the installed Odoo journal module. */
 export function pushIrenxSignal(signal: IrenxSignal) {
   const model = process.env.ODOO_SIGNAL_MODEL || "irenx.signal";
   const timestamp = signal.timestamp || new Date().toISOString();
@@ -124,7 +127,7 @@ export function pushIrenxSignal(signal: IrenxSignal) {
     orochi: signal.orochi || "",
     vmap: signal.vmap || "",
     trigger: signal.trigger || "",
-    signal_time: timestamp,
+    signal_time: odooDatetime(timestamp),
     source: "IRENX",
     external_id: externalId,
     metadata_json: JSON.stringify(signal.metadata || {}),
