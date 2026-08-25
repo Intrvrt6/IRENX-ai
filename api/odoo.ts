@@ -29,6 +29,7 @@ export type IrenxSignal = {
   vmap?: string;
   trigger?: string;
   timestamp?: string;
+  externalId?: string;
   metadata?: Record<string, unknown>;
 };
 
@@ -41,7 +42,7 @@ function headers() {
     Accept: "application/json",
     "Content-Type": "application/json; charset=utf-8",
     Authorization: `bearer ${ODOO_API_KEY}`,
-    "User-Agent": "IRENX-Odoo-Integration/1.0",
+    "User-Agent": "IRENX-Odoo-Integration/1.1",
   };
   if (ODOO_DATABASE) result["X-Odoo-Database"] = ODOO_DATABASE;
   return result;
@@ -98,32 +99,37 @@ export function odooRead(model: string, ids: number[], fields: string[] = []) {
 }
 
 /**
- * Writes an IRENX signal into a configurable Odoo model.
- * The target model must exist in the connected Odoo database.
+ * Automatically persists an IRENX SIGNAL into the installed Odoo journal module.
+ * The custom module exposes create_from_irenx() so retries are idempotent.
  */
 export function pushIrenxSignal(signal: IrenxSignal) {
-  const model = process.env.ODOO_SIGNAL_MODEL || "x_irenx_signal";
+  const model = process.env.ODOO_SIGNAL_MODEL || "irenx.signal";
+  const timestamp = signal.timestamp || new Date().toISOString();
+  const externalId = signal.externalId || String(signal.metadata?.signal_id || `${signal.symbol}:${signal.status}:${timestamp}`);
   const values: Record<string, unknown> = {
-    x_symbol: signal.symbol,
-    x_status: signal.status,
-    x_bias: signal.bias || "",
-    x_entry: signal.entry ?? false,
-    x_sl: signal.sl ?? false,
-    x_tp1: signal.tp1 ?? false,
-    x_tp2: signal.tp2 ?? false,
-    x_tp3: signal.tp3 ?? false,
-    x_confidence: signal.confidence ?? false,
-    x_timeframe: signal.timeframe || "",
-    x_regime: signal.regime || "",
-    x_liquidity: signal.liquidity || "",
-    x_reflexivity: signal.reflexivity || "",
-    x_orochi: signal.orochi || "",
-    x_vmap: signal.vmap || "",
-    x_trigger: signal.trigger || "",
-    x_timestamp: signal.timestamp || new Date().toISOString(),
-    x_metadata: JSON.stringify(signal.metadata || {}),
+    name: `IRENX ${signal.symbol} ${signal.status}`,
+    symbol: signal.symbol,
+    status: signal.status,
+    bias: signal.bias || "",
+    entry: signal.entry ?? 0,
+    sl: signal.sl ?? 0,
+    tp1: signal.tp1 ?? 0,
+    tp2: signal.tp2 ?? 0,
+    tp3: signal.tp3 ?? 0,
+    confidence: signal.confidence ?? 0,
+    timeframe: signal.timeframe || "",
+    regime: signal.regime || "",
+    liquidity: signal.liquidity || "",
+    reflexivity: signal.reflexivity || "",
+    orochi: signal.orochi || "",
+    vmap: signal.vmap || "",
+    trigger: signal.trigger || "",
+    signal_time: timestamp,
+    source: "IRENX",
+    external_id: externalId,
+    metadata_json: JSON.stringify(signal.metadata || {}),
   };
-  return odooCreate(model, values);
+  return callOdoo(model, "create_from_irenx", { values });
 }
 
 export async function odooCall(request: OdooCall) {
