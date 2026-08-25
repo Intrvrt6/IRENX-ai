@@ -29,8 +29,14 @@ fn security_headers(response: &mut Response) -> Result<()> {
     headers.set("x-content-type-options", "nosniff")?;
     headers.set("x-frame-options", "DENY")?;
     headers.set("referrer-policy", "no-referrer")?;
-    headers.set("permissions-policy", "camera=(), microphone=(), geolocation=()")?;
-    headers.set("content-security-policy", "default-src 'none'; frame-ancestors 'none'")?;
+    headers.set(
+        "permissions-policy",
+        "camera=(), microphone=(), geolocation=()",
+    )?;
+    headers.set(
+        "content-security-policy",
+        "default-src 'none'; frame-ancestors 'none'",
+    )?;
     Ok(())
 }
 
@@ -80,7 +86,12 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     }
 
     if method != Method::Get {
-        let mut response = json(&ErrorBody { error: "method not allowed" }, 405)?;
+        let mut response = json(
+            &ErrorBody {
+                error: "method not allowed",
+            },
+            405,
+        )?;
         response.headers_mut().set("allow", "GET, OPTIONS")?;
         cors(&mut response, &env)?;
         with_request_id(&mut response, &id)?;
