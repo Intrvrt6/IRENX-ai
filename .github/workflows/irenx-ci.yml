@@ -21,6 +21,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
       - name: Validate required files
         shell: bash
         run: |
@@ -42,6 +48,38 @@ jobs:
             exit 1
           fi
           echo 'Secret scan OK'
+
+      - name: Validate JavaScript and JSON syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check api/index.ts
+          node --check api/ai.ts
+          node --check api/dify.ts
+          node --check api/odoo.ts
+          node --check api/v1/models.ts
+          node --check api/v1/chat/completions.ts
+          node --check src/omniroute/core-router.ts
+          node --check mcp/irenx.ts
+          node --check worker/index.ts
+          node -e "JSON.parse(require('fs').readFileSync('package.json','utf8')); JSON.parse(require('fs').readFileSync('manifest.webmanifest','utf8'))"
+          echo 'JS/JSON syntax gate OK'
+
+      - name: Validate Odoo Python and XML
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib, py_compile, sys, xml.etree.ElementTree as ET
+          root = pathlib.Path('integrations/odoo/irenx_signal_journal')
+          py_files = list(root.rglob('*.py'))
+          xml_files = list(root.rglob('*.xml'))
+          for path in py_files:
+              py_compile.compile(str(path), doraise=True)
+          for path in xml_files:
+              ET.parse(path)
+          print(f'Odoo syntax gate OK: {len(py_files)} Python, {len(xml_files)} XML files')
+          PY
 
       - name: Validate AI router
         shell: bash
@@ -136,10 +174,11 @@ jobs:
           grep -q 'CLOUDFLARE_ACCOUNT_ID' .github/workflows/cloudflare-deploy.yml
           echo 'Cloudflare deployment workflow validation OK'
 
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
       - name: Validate Wrangler dependency graph
-        run: |
-          npm install --ignore-scripts
-          npx wrangler deploy --dry-run
+        run: npx wrangler deploy --dry-run
 
       - name: Validate API source
         shell: bash
