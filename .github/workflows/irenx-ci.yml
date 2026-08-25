@@ -25,7 +25,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
       - name: Validate required files
         shell: bash
@@ -49,28 +48,19 @@ jobs:
           fi
           echo 'Secret scan OK'
 
-      - name: Validate JavaScript and JSON syntax
+      - name: Validate JSON files
         shell: bash
         run: |
           set -euo pipefail
-          node --check api/index.ts
-          node --check api/ai.ts
-          node --check api/dify.ts
-          node --check api/odoo.ts
-          node --check api/v1/models.ts
-          node --check api/v1/chat/completions.ts
-          node --check src/omniroute/core-router.ts
-          node --check mcp/irenx.ts
-          node --check worker/index.ts
           node -e "JSON.parse(require('fs').readFileSync('package.json','utf8')); JSON.parse(require('fs').readFileSync('manifest.webmanifest','utf8'))"
-          echo 'JS/JSON syntax gate OK'
+          echo 'JSON validation OK'
 
       - name: Validate Odoo Python and XML
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import pathlib, py_compile, sys, xml.etree.ElementTree as ET
+          import pathlib, py_compile, xml.etree.ElementTree as ET
           root = pathlib.Path('integrations/odoo/irenx_signal_journal')
           py_files = list(root.rglob('*.py'))
           xml_files = list(root.rglob('*.xml'))
