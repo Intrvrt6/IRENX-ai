@@ -11,12 +11,9 @@
   "theme_color": "#000000",
   "lang": "id",
   "categories": ["business", "finance", "productivity"],
-  "icons": [
-    {
-      "src": "/icons/irenx.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    }
+  "icons": [{"src":"/icons/irenx.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}],
+  "shortcuts": [
+    {"name":"IRENX Signal","short_name":"Signal","url":"/?mode=signal","icons":[{"src":"/icons/irenx.svg","sizes":"any","type":"image/svg+xml"}]},
+    {"name":"IRENX Health","short_name":"Health","url":"/api/health","icons":[{"src":"/icons/irenx.svg","sizes":"any","type":"image/svg+xml"}]}
   ]
 }
