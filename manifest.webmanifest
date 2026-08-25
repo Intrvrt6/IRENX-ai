@@ -1,12 +1,22 @@
 {
   "name": "IRENX PRIME AI",
   "short_name": "IRENX",
-  "description": "IRENX PRIME AI — live trading intelligence dashboard.",
+  "description": "IRENX PRIME AI — cross-platform AI and trading intelligence tool.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
   "background_color": "#000000",
   "theme_color": "#000000",
   "lang": "id",
-  "icons": []
+  "categories": ["business", "finance", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/irenx.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
 }
