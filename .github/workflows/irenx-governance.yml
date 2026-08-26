@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Validate PR governance
         env:
@@ -28,7 +28,7 @@ jobs:
               echo 'PR title must not be empty.'
               exit 1
             fi
-            if ! grep -Eiq '(#8|closes|fixes|resolves)' <<< "$PR_BODY"; then
+            if ! grep -Eiq '(#[0-9]+|closes|fixes|resolves)' <<< "$PR_BODY"; then
               echo 'PR must reference an issue using #N or closes/fixes/resolves syntax.'
               exit 1
             fi

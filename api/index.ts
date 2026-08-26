@@ -1,11 +1,15 @@
 import { chatThroughOmniRoute, observabilitySnapshot, chooseRoute } from "../src/omniroute/core-router";
 import { difyConfigured, runDifyChat, runDifyWorkflow } from "./dify";
+import { odooCall, odooCreate, odooHealth, odooRead, odooSearchRead, odooConfigured, pushIrenxSignal } from "./odoo";
+import { googlePeopleConfigured, googlePeopleConnections, googlePeopleHealth, googlePeopleMe } from "./google-people";
 import { createIrenxMcpHandler } from "../mcp/irenx";
 
 const MCP_HANDLER = createIrenxMcpHandler();
 const PROVIDER = process.env.MARKET_PROVIDER || "twelvedata";
 const API_KEY = process.env.TWELVEDATA_API_KEY || "";
 const PORT = Number(process.env.PORT || 3000);
+const SIGNAL_INGEST_KEY = process.env.IRENX_SIGNAL_INGEST_KEY || "";
+const GOOGLE_PEOPLE_INGEST_KEY = process.env.GOOGLE_PEOPLE_INGEST_KEY || "";
 const ALLOWED = new Set(["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "NAS100"]);
 const TD_SYMBOL: Record<string, string> = { XAUUSD: "XAU/USD", EURUSD: "EUR/USD", GBPUSD: "GBP/USD", USDJPY: "USD/JPY", NAS100: "NDX" };
 
@@ -17,10 +21,20 @@ let providerReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let providerConnected = false;
 
 function cors(headers: Record<string, string> = {}) {
-  return { "Access-Control-Allow-Origin": process.env.CORS_ORIGIN || "*", "Access-Control-Allow-Methods": "GET,POST,OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", ...headers };
+  return { "Access-Control-Allow-Origin": process.env.CORS_ORIGIN || "*", "Access-Control-Allow-Methods": "GET,POST,OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization, X-IRENX-Signal-Key, X-IRENX-Google-People-Key", ...headers };
 }
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: cors({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }) });
+}
+function signalAuthorized(request: Request) {
+  if (!SIGNAL_INGEST_KEY) return true;
+  const supplied = request.headers.get("X-IRENX-Signal-Key") || request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") || "";
+  return supplied === SIGNAL_INGEST_KEY;
+}
+function googlePeopleAuthorized(request: Request) {
+  if (!GOOGLE_PEOPLE_INGEST_KEY) return true;
+  const supplied = request.headers.get("X-IRENX-Google-People-Key") || request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") || "";
+  return supplied === GOOGLE_PEOPLE_INGEST_KEY;
 }
 function normalize(symbol: string, payload: any): Quote | null {
   const price = Number(payload.price ?? payload.close ?? payload.value);
@@ -73,7 +87,7 @@ async function restQuote(symbol: string): Promise<Quote> {
   return q;
 }
 function health() {
-  return { ok: true, provider: PROVIDER, configured: Boolean(API_KEY), providerWebSocket: providerConnected, clients: clients.size, time: new Date().toISOString(), dify: { configured: difyConfigured(), baseUrl: process.env.DIFY_BASE_URL || "http://127.0.0.1:5001" }, ai: observabilitySnapshot(), mcp: { enabled: true, endpoint: "/mcp" } };
+  return { ok: true, provider: PROVIDER, configured: Boolean(API_KEY), providerWebSocket: providerConnected, clients: clients.size, time: new Date().toISOString(), dify: { configured: difyConfigured(), baseUrl: process.env.DIFY_BASE_URL || "http://127.0.0.1:5001" }, odoo: { configured: odooConfigured(), baseUrl: process.env.ODOO_BASE_URL || null, signalIngestAuth: Boolean(SIGNAL_INGEST_KEY) }, googlePeople: { configured: googlePeopleConfigured(), endpoint: "/api/google/people/health", authGuard: Boolean(GOOGLE_PEOPLE_INGEST_KEY) }, ai: observabilitySnapshot(), mcp: { enabled: true, endpoint: "/mcp" } };
 }
 function staticFile(pathname: string): Response | null {
   const files: Record<string, string> = { "/": "index.html", "/index.html": "index.html", "/manifest.webmanifest": "manifest.webmanifest" };
@@ -92,7 +106,7 @@ Bun.serve({
     if (url.pathname === "/mcp" || url.pathname === "/mcp/") return MCP_HANDLER.fetch(request);
     if (url.pathname.startsWith("/mcp/docs/")) {
       const id = decodeURIComponent(url.pathname.slice("/mcp/docs/".length));
-      const map: Record<string, string> = { readme: "README.md", "dify-integration": "docs/DIFY_INTEGRATION.md", "cloudflare-deployment": "docs/CLOUDFLARE_DEPLOYMENT.md", "ci-verification": "docs/CI-VERIFICATION.md", automation: "AUTOMATION.md" };
+      const map: Record<string, string> = { readme: "README.md", "dify-integration": "docs/DIFY_INTEGRATION.md", "cloudflare-deployment": "docs/CLOUDFLARE_DEPLOYMENT.md", "ci-verification": "docs/CI-VERIFICATION.md", automation: "AUTOMATION.md", odoo: "docs/ODOO_INTEGRATION.md", "google-people": "docs/GOOGLE_PEOPLE_INTEGRATION.md" };
       const path = map[id];
       if (!path) return new Response("Not found", { status: 404, headers: cors() });
       const file = Bun.file(path);
@@ -104,6 +118,18 @@ Bun.serve({
     if (url.pathname === "/api/health") return json(health());
     if (url.pathname === "/api/ai/health") return json({ ok: true, service: "irenx-omniroute-core", ...observabilitySnapshot() });
     if (url.pathname === "/api/dify/health") return json({ ok: difyConfigured(), service: "irenx-dify-bridge", configured: difyConfigured(), baseUrl: process.env.DIFY_BASE_URL || "http://127.0.0.1:5001" });
+    if (url.pathname === "/api/odoo/health") return json(await odooHealth());
+    if (url.pathname === "/api/google/people/health") return json(await googlePeopleHealth());
+    if (url.pathname === "/api/google/people/me") {
+      if (!googlePeopleAuthorized(request)) return json({ error: "Unauthorized Google People access" }, 401);
+      try { return json(await googlePeopleMe(url.searchParams.get("personFields") || undefined)); } catch (error) { return json({ error: error instanceof Error ? error.message : "Google People API failure" }, 502); }
+    }
+    if (url.pathname === "/api/google/people/connections") {
+      if (!googlePeopleAuthorized(request)) return json({ error: "Unauthorized Google People access" }, 401);
+      try {
+        return json(await googlePeopleConnections({ personFields: url.searchParams.get("personFields") || undefined, pageToken: url.searchParams.get("pageToken") || undefined, pageSize: Number(url.searchParams.get("pageSize") || 100), requestSyncToken: url.searchParams.get("requestSyncToken") === "true", syncToken: url.searchParams.get("syncToken") || undefined, sortOrder: url.searchParams.get("sortOrder") || undefined }));
+      } catch (error) { return json({ error: error instanceof Error ? error.message : "Google People connections failure" }, 502); }
+    }
     if (url.pathname === "/api/ai/route") { const prompt = url.searchParams.get("prompt") || ""; if (!prompt) return json({ error: "prompt is required" }, 400); return json(chooseRoute(prompt)); }
     if (url.pathname === "/api/ai" && request.method === "POST") {
       try {
@@ -113,9 +139,30 @@ Bun.serve({
     }
     if (url.pathname === "/api/dify/workflows/run" && request.method === "POST") { try { const body = await request.json(); return json(await runDifyWorkflow({ inputs: body?.inputs, user: body?.user, responseMode: body?.response_mode === "streaming" ? "streaming" : "blocking" })); } catch (error) { return json({ error: error instanceof Error ? error.message : "Dify workflow failure" }, 502); } }
     if (url.pathname === "/api/dify/chat-messages" && request.method === "POST") { try { const body = await request.json(); const query = typeof body?.query === "string" ? body.query : ""; if (!query.trim()) return json({ error: "query is required" }, 400); return json(await runDifyChat({ query, user: body?.user, conversationId: body?.conversation_id, inputs: body?.inputs, responseMode: body?.response_mode === "streaming" ? "streaming" : "blocking" })); } catch (error) { return json({ error: error instanceof Error ? error.message : "Dify chat failure" }, 502); } }
+    if (url.pathname === "/api/odoo/model" && request.method === "POST") {
+      try { const body = await request.json(); return json(await odooCall(body)); } catch (error) { return json({ error: error instanceof Error ? error.message : "Odoo API failure" }, 502); }
+    }
+    if (url.pathname === "/api/odoo/search" && request.method === "POST") {
+      try { const body = await request.json(); return json(await odooSearchRead(String(body?.model || ""), Array.isArray(body?.domain) ? body.domain : [], Array.isArray(body?.fields) ? body.fields : [], Number(body?.limit || 50))); } catch (error) { return json({ error: error instanceof Error ? error.message : "Odoo search failure" }, 502); }
+    }
+    if (url.pathname === "/api/odoo/read" && request.method === "POST") {
+      try { const body = await request.json(); if (!Array.isArray(body?.ids)) return json({ error: "ids is required" }, 400); return json(await odooRead(String(body?.model || ""), body.ids.map(Number), Array.isArray(body?.fields) ? body.fields : [])); } catch (error) { return json({ error: error instanceof Error ? error.message : "Odoo read failure" }, 502); }
+    }
+    if (url.pathname === "/api/odoo/create" && request.method === "POST") {
+      try { const body = await request.json(); if (!body?.values || typeof body.values !== "object") return json({ error: "values is required" }, 400); return json(await odooCreate(String(body?.model || ""), body.values)); } catch (error) { return json({ error: error instanceof Error ? error.message : "Odoo create failure" }, 502); }
+    }
+    if ((url.pathname === "/api/odoo/signal" || url.pathname === "/api/irenx/signal") && request.method === "POST") {
+      if (!signalAuthorized(request)) return json({ error: "Unauthorized signal ingestion" }, 401);
+      try {
+        const body = await request.json();
+        if (!body?.symbol || !body?.status) return json({ error: "symbol and status are required" }, 400);
+        const result = await pushIrenxSignal(body);
+        return json({ ok: true, synced: true, odoo: result });
+      } catch (error) { return json({ error: error instanceof Error ? error.message : "Odoo signal sync failure" }, 502); }
+    }
     if (url.pathname === "/api/market") { const symbol = (url.searchParams.get("symbol") || "XAUUSD").toUpperCase(); if (!ALLOWED.has(symbol)) return json({ error: "Unsupported symbol" }, 400); const cached = latest.get(symbol); if (cached) return json(cached); try { return json(await restQuote(symbol)); } catch (error) { return json({ error: error instanceof Error ? error.message : "market data unavailable" }, 503); } }
     if (url.pathname === "/api/ws") { if (!server.upgrade(request)) return new Response("WebSocket upgrade required", { status: 426, headers: cors() }); return undefined; }
-    if (url.pathname === "/api") return json({ service: "IRENX live market + OmniRoute AI Core + Dify + MCP", endpoints: ["/api/health", "/api/market?symbol=XAUUSD", "/api/ws", "/api/ai", "/api/ai/health", "/api/ai/route?prompt=...", "/api/dify/health", "/api/dify/workflows/run", "/api/dify/chat-messages", "/mcp"] });
+    if (url.pathname === "/api") return json({ service: "IRENX live market + OmniRoute AI Core + Dify + Odoo + Google People + MCP", endpoints: ["/api/health", "/api/market?symbol=XAUUSD", "/api/ws", "/api/ai", "/api/ai/health", "/api/ai/route?prompt=...", "/api/dify/health", "/api/dify/workflows/run", "/api/dify/chat-messages", "/api/odoo/health", "/api/odoo/model", "/api/odoo/search", "/api/odoo/read", "/api/odoo/create", "/api/irenx/signal", "/api/google/people/health", "/api/google/people/me", "/api/google/people/connections", "/mcp"] });
     return new Response("Not found", { status: 404, headers: cors() });
   },
   websocket: {

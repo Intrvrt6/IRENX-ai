@@ -21,11 +21,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Validate required files
         shell: bash
         run: |
           set -euo pipefail
-          for f in index.html api/index.ts api/ai.ts api/dify.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts mcp/irenx.ts worker/index.ts package.json wrangler.toml docs/DIFY_INTEGRATION.md docs/CLOUDFLARE_NATIVE.md manifest.webmanifest; do
+          for f in index.html api/index.ts api/ai.ts api/dify.ts api/odoo.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts mcp/irenx.ts worker/index.ts package.json wrangler.toml docs/DIFY_INTEGRATION.md docs/CLOUDFLARE_NATIVE.md docs/ODOO_SIGNAL_JOURNAL.md manifest.webmanifest; do
             test -s "$f" || { echo "Missing: $f"; exit 1; }
           done
           test ! -e vercel.json
@@ -42,6 +47,29 @@ jobs:
             exit 1
           fi
           echo 'Secret scan OK'
+
+      - name: Validate JSON files
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "JSON.parse(require('fs').readFileSync('package.json','utf8')); JSON.parse(require('fs').readFileSync('manifest.webmanifest','utf8'))"
+          echo 'JSON validation OK'
+
+      - name: Validate Odoo Python and XML
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib, py_compile, xml.etree.ElementTree as ET
+          root = pathlib.Path('integrations/odoo/irenx_signal_journal')
+          py_files = list(root.rglob('*.py'))
+          xml_files = list(root.rglob('*.xml'))
+          for path in py_files:
+              py_compile.compile(str(path), doraise=True)
+          for path in xml_files:
+              ET.parse(path)
+          print(f'Odoo syntax gate OK: {len(py_files)} Python, {len(xml_files)} XML files')
+          PY
 
       - name: Validate AI router
         shell: bash
@@ -81,6 +109,23 @@ jobs:
           grep -q 'DIFY_TIMEOUT_MS' .env.example
           echo 'Dify bridge validation OK'
 
+      - name: Validate Odoo Signal Journal
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s integrations/odoo/irenx_signal_journal/__manifest__.py
+          test -s integrations/odoo/irenx_signal_journal/models/irenx_signal.py
+          test -s integrations/odoo/irenx_signal_journal/security/ir.model.access.csv
+          test -s integrations/odoo/irenx_signal_journal/views/irenx_signal_views.xml
+          grep -q 'json/2' api/odoo.ts
+          grep -q 'Authorization:.*bearer' api/odoo.ts
+          grep -q 'create_from_irenx' api/odoo.ts
+          grep -q 'irenx.signal' api/odoo.ts
+          grep -q '/api/irenx/signal' api/index.ts
+          grep -q 'IRENX_SIGNAL_INGEST_KEY' api/index.ts
+          grep -q 'ODOO_SIGNAL_MODEL=irenx.signal' .env.example
+          echo 'Odoo Signal Journal validation OK'
+
       - name: Validate MCP integration
         shell: bash
         run: |
@@ -119,10 +164,11 @@ jobs:
           grep -q 'CLOUDFLARE_ACCOUNT_ID' .github/workflows/cloudflare-deploy.yml
           echo 'Cloudflare deployment workflow validation OK'
 
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
       - name: Validate Wrangler dependency graph
-        run: |
-          npm install --ignore-scripts
-          npx wrangler deploy --dry-run
+        run: npx wrangler deploy --dry-run
 
       - name: Validate API source
         shell: bash
