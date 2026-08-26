@@ -30,7 +30,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for f in index.html api/index.ts api/ai.ts api/dify.ts api/odoo.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts mcp/irenx.ts worker/index.ts package.json wrangler.toml docs/DIFY_INTEGRATION.md docs/CLOUDFLARE_NATIVE.md docs/ODOO_SIGNAL_JOURNAL.md manifest.webmanifest; do
+          for f in index.html api/index.ts api/ai.ts api/dify.ts api/odoo.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts mcp/irenx.ts worker/index.ts worker/platform-v2.ts worker/mcp-policy.ts worker/otel.ts worker/cost-engine.ts package.json wrangler.toml docs/DIFY_INTEGRATION.md docs/CLOUDFLARE_NATIVE.md docs/ODOO_SIGNAL_JOURNAL.md docs/PLATFORM_V2_ARCHITECTURE.md docs/PLATFORM_V2_ROADMAP.md docs/SECURITY_MODEL_V2.md docs/COST_ENGINE_V2.md docs/OPERATIONS.md docs/THREAT_MODEL.md docs/SLO.md manifest.webmanifest; do
             test -s "$f" || { echo "Missing: $f"; exit 1; }
           done
           test ! -e vercel.json
@@ -154,6 +154,21 @@ jobs:
           grep -q 'DIFY_BASE_URL' worker/index.ts
           echo 'Cloudflare-native Worker validation OK'
 
+      - name: Validate Platform v2 runtime security
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'IRENX_GATEWAY_API_KEY' worker/index.ts
+          grep -q 'IRENX_MCP_AUTH_REQUIRED' worker/index.ts
+          grep -q 'IRENX_RBAC_DEFAULT_ROLE' worker/index.ts
+          grep -q 'gateway.authorize' worker/index.ts
+          grep -q 'MCP' worker/index.ts
+          grep -q 'trading.execute' worker/platform-v2.ts
+          grep -q 'tool_not_registered' worker/platform-v2.ts
+          grep -q 'UsageEvent' worker/cost-engine.ts
+          grep -q 'traceId' worker/otel.ts
+          echo 'Platform v2 runtime security validation OK'
+
       - name: Validate Cloudflare deployment workflow
         shell: bash
         run: |
@@ -166,6 +181,9 @@ jobs:
 
       - name: Install dependencies
         run: npm install --ignore-scripts
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
 
       - name: Validate Wrangler dependency graph
         run: npx wrangler deploy --dry-run
