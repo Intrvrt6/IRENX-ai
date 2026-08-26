@@ -25,12 +25,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
       - name: Validate required files
         shell: bash
         run: |
           set -euo pipefail
-          for f in index.html api/index.ts api/ai.ts api/dify.ts api/odoo.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts mcp/irenx.ts worker/index.ts worker/platform-v2.ts worker/mcp-policy.ts worker/otel.ts worker/cost-engine.ts package.json wrangler.toml docs/DIFY_INTEGRATION.md docs/CLOUDFLARE_NATIVE.md docs/ODOO_SIGNAL_JOURNAL.md docs/PLATFORM_V2_ARCHITECTURE.md docs/PLATFORM_V2_ROADMAP.md docs/SECURITY_MODEL_V2.md docs/COST_ENGINE_V2.md docs/OPERATIONS.md docs/THREAT_MODEL.md docs/SLO.md manifest.webmanifest; do
+          for f in index.html api/index.ts api/ai.ts api/dify.ts api/odoo.ts api/v1/models.ts api/v1/chat/completions.ts src/omniroute/core-router.ts mcp/irenx.ts worker/index.ts worker/platform-v2.ts worker/mcp-policy.ts worker/otel.ts worker/cost-engine.ts package.json webpack.config.cjs build/webpack-entry.js wrangler.toml docs/DIFY_INTEGRATION.md docs/CLOUDFLARE_NATIVE.md docs/ODOO_SIGNAL_JOURNAL.md docs/PLATFORM_V2_ARCHITECTURE.md docs/PLATFORM_V2_ROADMAP.md docs/SECURITY_MODEL_V2.md docs/COST_ENGINE_V2.md docs/OPERATIONS.md docs/THREAT_MODEL.md docs/SLO.md docs/RELEASE_POLICY.md manifest.webmanifest; do
             test -s "$f" || { echo "Missing: $f"; exit 1; }
           done
           test ! -e vercel.json
@@ -184,6 +185,12 @@ jobs:
 
       - name: TypeScript typecheck
         run: npm run typecheck
+
+      - name: Run production build validation
+        run: npm run build
+
+      - name: Run webpack compatibility build
+        run: npm run build:webpack
 
       - name: Validate Wrangler dependency graph
         run: npx wrangler deploy --dry-run
