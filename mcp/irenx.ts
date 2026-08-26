@@ -2,12 +2,14 @@ import { createMcpHandler, McpServer } from "npm:@modelcontextprotocol/server@2.
 import * as z from "npm:zod@4";
 
 const PUBLIC_ORIGIN = process.env.MCP_PUBLIC_ORIGIN || "https://ai.irenx.com";
+const CDNJS_API_ORIGIN = "https://api.cdnjs.com";
 const DOCS = [
   { id: "readme", title: "IRENX-ai README", path: "README.md" },
   { id: "dify-integration", title: "IRENX Dify Integration", path: "docs/DIFY_INTEGRATION.md" },
   { id: "cloudflare-deployment", title: "IRENX Cloudflare Deployment", path: "docs/CLOUDFLARE_DEPLOYMENT.md" },
   { id: "ci-verification", title: "IRENX CI Verification", path: "docs/CI-VERIFICATION.md" },
   { id: "automation", title: "IRENX Automation", path: "AUTOMATION.md" },
+  { id: "cdnjs-api", title: "IRENX cdnjs API Integration", path: "docs/CDNJS_API_INTEGRATION.md" },
 ];
 
 type SearchResult = { id: string; title: string; url: string };
@@ -35,9 +37,18 @@ async function readDoc(path: string) {
   return await file.text();
 }
 
+function cdnjsUrl(path: string, query?: Record<string, string>) {
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\") || path.includes("..")) {
+    throw new Error("Invalid cdnjs API path");
+  }
+  const url = new URL(path, CDNJS_API_ORIGIN);
+  if (query) for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+  return url;
+}
+
 export function createIrenxMcpHandler() {
   return createMcpHandler(() => {
-    const server = new McpServer({ name: "IRENX AI MCP", version: "1.0.0" });
+    const server = new McpServer({ name: "IRENX AI MCP", version: "1.1.0" });
 
     server.registerTool(
       "search",
@@ -77,9 +88,29 @@ export function createIrenxMcpHandler() {
     );
 
     server.registerTool(
+      "cdnjs_api",
+      {
+        description: "Read public cdnjs API data through the official api.cdnjs.com service. Read-only and restricted to the cdnjs API origin.",
+        inputSchema: z.object({
+          path: z.string().min(1).max(500).default("/libraries"),
+          query: z.record(z.string(), z.string()).optional(),
+        }),
+      },
+      async ({ path, query }) => {
+        const url = cdnjsUrl(path, query);
+        const response = await fetch(url, { headers: { Accept: "application/json" } });
+        const text = await response.text();
+        if (!response.ok) throw new Error(`cdnjs API request failed with HTTP ${response.status}`);
+        let data: unknown;
+        try { data = JSON.parse(text); } catch { data = text; }
+        return { content: [{ type: "text", text: JSON.stringify({ source: "cdnjs", url: url.toString(), data }) }] };
+      },
+    );
+
+    server.registerTool(
       "health",
       { description: "Return IRENX MCP and runtime health information.", inputSchema: z.object({}) },
-      async () => ({ content: [{ type: "text", text: JSON.stringify({ ok: true, service: "irenx-mcp", timestamp: new Date().toISOString() }) }] }),
+      async () => ({ content: [{ type: "text", text: JSON.stringify({ ok: true, service: "irenx-mcp", cdnjsApi: CDNJS_API_ORIGIN, timestamp: new Date().toISOString() }) }] }),
     );
 
     return server;
