@@ -2,12 +2,14 @@ import { createMcpHandler, McpServer } from "npm:@modelcontextprotocol/server@2.
 import * as z from "npm:zod@4";
 
 const PUBLIC_ORIGIN = process.env.MCP_PUBLIC_ORIGIN || "https://ai.irenx.com";
+const TWELVEDATA_API_KEY = process.env.TWELVEDATA_API_KEY || "";
 const DOCS = [
   { id: "readme", title: "IRENX-ai README", path: "README.md" },
   { id: "dify-integration", title: "IRENX Dify Integration", path: "docs/DIFY_INTEGRATION.md" },
   { id: "cloudflare-deployment", title: "IRENX Cloudflare Deployment", path: "docs/CLOUDFLARE_DEPLOYMENT.md" },
   { id: "ci-verification", title: "IRENX CI Verification", path: "docs/CI-VERIFICATION.md" },
   { id: "automation", title: "IRENX Automation", path: "AUTOMATION.md" },
+  { id: "twelvedata-ad", title: "IRENX Twelve Data AD Indicator", path: "docs/TWELVEDATA_AD.md" },
 ];
 
 type SearchResult = { id: string; title: string; url: string };
@@ -37,7 +39,7 @@ async function readDoc(path: string) {
 
 export function createIrenxMcpHandler() {
   return createMcpHandler(() => {
-    const server = new McpServer({ name: "IRENX AI MCP", version: "1.0.0" });
+    const server = new McpServer({ name: "IRENX AI MCP", version: "1.1.0" });
 
     server.registerTool(
       "search",
@@ -77,9 +79,41 @@ export function createIrenxMcpHandler() {
     );
 
     server.registerTool(
+      "twelvedata_ad",
+      {
+        description: "Fetch Twelve Data Accumulation/Distribution (AD) indicator data for a symbol and interval. API credentials stay server-side.",
+        inputSchema: z.object({
+          symbol: z.string().min(1).max(40).default("AAPL"),
+          interval: z.string().min(2).max(10).default("1min"),
+          time_period: z.number().int().min(1).max(800).optional(),
+          outputsize: z.number().int().min(1).max(5000).optional(),
+        }),
+      },
+      async ({ symbol, interval, time_period, outputsize }) => {
+        if (!TWELVEDATA_API_KEY) throw new Error("TWELVEDATA_API_KEY is not configured");
+        const url = new URL("https://api.twelvedata.com/ad");
+        url.searchParams.set("symbol", symbol.toUpperCase());
+        url.searchParams.set("interval", interval);
+        if (time_period !== undefined) url.searchParams.set("time_period", String(time_period));
+        if (outputsize !== undefined) url.searchParams.set("outputsize", String(outputsize));
+
+        const response = await fetch(url, {
+          headers: { Accept: "application/json", Authorization: `apikey ${TWELVEDATA_API_KEY}` },
+        });
+        const data = await response.json();
+        if (!response.ok || data?.status === "error" || data?.code) {
+          throw new Error(data?.message || `Twelve Data AD request failed with HTTP ${response.status}`);
+        }
+        return {
+          content: [{ type: "text", text: JSON.stringify({ source: "twelvedata", indicator: "AD", symbol: symbol.toUpperCase(), interval, data }) }],
+        };
+      },
+    );
+
+    server.registerTool(
       "health",
       { description: "Return IRENX MCP and runtime health information.", inputSchema: z.object({}) },
-      async () => ({ content: [{ type: "text", text: JSON.stringify({ ok: true, service: "irenx-mcp", timestamp: new Date().toISOString() }) }] }),
+      async () => ({ content: [{ type: "text", text: JSON.stringify({ ok: true, service: "irenx-mcp", twelveDataConfigured: Boolean(TWELVEDATA_API_KEY), timestamp: new Date().toISOString() }) }] }),
     );
 
     return server;
