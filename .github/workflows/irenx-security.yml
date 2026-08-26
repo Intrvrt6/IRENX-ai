@@ -65,7 +65,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: aquasecurity/trivy-action@0.28.1
+      # v0.28.1 does not exist. Current upstream action release is v0.36.0.
+      - uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .

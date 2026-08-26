@@ -1,0 +1,37 @@
+name: IRENX Platform v2 Release Gate
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate source inventory
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          find . -type f \
+            -not -path './.git/*' \
+            -not -path './node_modules/*' \
+            -print | sort > artifacts/irenx-source-files.txt
+
+      - name: Generate lightweight SBOM manifest
+        shell: bash
+        run: |
+          printf '{\n  "format": "IRENX-SBOM-MANIFEST-v1",\n  "generatedAt": "%s",\n  "repository": "%s",\n  "ref": "%s"\n}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${GITHUB_REPOSITORY}" "${GITHUB_SHA}" > artifacts/irenx-sbom-manifest.json
+
+      - name: Upload release governance artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: irenx-platform-v2-release-governance
+          path: artifacts/

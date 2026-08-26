@@ -18,6 +18,10 @@ type Env = {
   IRENX_EST_OUTPUT_TOKENS: string;
   IRENX_OPENAI_MODEL?: string;
   IRENX_OPENAI_SEARCH_CONTEXT?: string;
+  IRENX_GATEWAY_API_KEY?: string;
+  IRENX_MCP_AUTH_REQUIRED?: string;
+  IRENX_RBAC_DEFAULT_ROLE?: string;
+  IRENX_AUDIT_ENABLED?: string;
   OPENAI_API_KEY?: string;
   OMNIROUTE_BASE_URL?: string;
   OMNIROUTE_API_KEY?: string;
@@ -46,6 +50,30 @@ function estimateTokens(text: string) { return Math.max(1, Math.ceil(text.length
 function estimateCost(input: number, output: number, env: Env) { return input / 1e6 * envNum(env, "IRENX_INPUT_USD_PER_1M", 3) + output / 1e6 * envNum(env, "IRENX_OUTPUT_USD_PER_1M", 15); }
 function json(data: unknown, status = 200) { return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*" } }); }
 
+async function digest(value: string) { const bytes = new TextEncoder().encode(value); const hash = await crypto.subtle.digest("SHA-256", bytes); return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join(""); }
+async function sameSecret(a: string, b: string) { if (!a || !b) return false; const [ha, hb] = await Promise.all([digest(a), digest(b)]); if (ha.length !== hb.length) return false; let diff = 0; for (let i = 0; i < ha.length; i++) diff |= ha.charCodeAt(i) ^ hb.charCodeAt(i); return diff === 0; }
+async function authenticate(request: Request, env: Env, required: boolean) {
+  const configured = env.IRENX_GATEWAY_API_KEY || "";
+  if (!required) return { authenticated: true, role: env.IRENX_RBAC_DEFAULT_ROLE || "viewer", reason: "policy_optional" };
+  if (!configured) return { authenticated: false, role: "viewer", reason: "auth_not_configured" };
+  const bearer = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() || "";
+  const apiKey = request.headers.get("x-api-key")?.trim() || "";
+  const supplied = bearer || apiKey;
+  const ok = await sameSecret(supplied, configured);
+  return { authenticated: ok, role: ok ? (env.IRENX_RBAC_DEFAULT_ROLE || "viewer") : "viewer", reason: ok ? "authenticated" : "invalid_credentials" };
+}
+function audit(env: Env, event: { action: string; resource: string; decision: "allow" | "deny"; reason: string; role?: string }) { if (env.IRENX_AUDIT_ENABLED === "1") console.log(JSON.stringify({ type: "irenx.audit", timestamp: new Date().toISOString(), ...event })); }
+async function protect(request: Request, env: Env, resource: string, permission: "read" | "write" = "read") {
+  const required = env.IRENX_MCP_AUTH_REQUIRED === "1";
+  const auth = await authenticate(request, env, required);
+  const role = auth.role;
+  const writeAllowed = role === "owner" && permission === "write";
+  const readAllowed = auth.authenticated && ["owner", "admin", "developer", "operator", "analyst", "trader", "viewer", "service"].includes(role);
+  const allowed = permission === "write" ? writeAllowed : readAllowed;
+  audit(env, { action: "gateway.authorize", resource, decision: allowed ? "allow" : "deny", reason: auth.reason, role });
+  return { ...auth, allowed };
+}
+
 async function routeOpenAI(prompt: string, env: Env) {
   const key = env.OPENAI_API_KEY || "";
   if (!key) throw new Error("OpenAI API is not configured in Cloudflare secrets");
@@ -69,58 +97,26 @@ async function routeOpenAI(prompt: string, env: Env) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), envNum(env, "IRENX_AI_TIMEOUT_MS", 45000));
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      signal: controller.signal,
-      headers: { authorization: `Bearer ${key}`, "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({ model, tools: [{ type: "web_search", search_context_size: context }], input: prompt })
-    });
+    const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", signal: controller.signal, headers: { authorization: `Bearer ${key}`, "content-type": "application/json", accept: "application/json" }, body: JSON.stringify({ model, tools: [{ type: "web_search", search_context_size: context }], input: prompt }) });
     const latency = Date.now() - started;
     m.latency += latency;
-    if (!response.ok) {
-      m.failures++; m.consecutiveFailures++;
-      if (m.consecutiveFailures >= envNum(env, "IRENX_CB_FAILURE_THRESHOLD", 3)) m.openedAt = Date.now();
-      const detail = await response.text().catch(() => "");
-      throw new Error(`OpenAI upstream HTTP ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`);
-    }
-    const payload: any = await response.json();
-    m.successes++; m.consecutiveFailures = 0; m.openedAt = 0;
-    const usage = payload?.usage || {};
-    const inUsed = Number(usage.input_tokens ?? inputTokens);
-    const outUsed = Number(usage.output_tokens ?? estimatedOutput);
-    const spend = estimateCost(Math.max(0, inUsed), Math.max(0, outUsed), env);
+    if (!response.ok) { m.failures++; m.consecutiveFailures++; if (m.consecutiveFailures >= envNum(env, "IRENX_CB_FAILURE_THRESHOLD", 3)) m.openedAt = Date.now(); const detail = await response.text().catch(() => ""); throw new Error(`OpenAI upstream HTTP ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`); }
+    const payload: any = await response.json(); m.successes++; m.consecutiveFailures = 0; m.openedAt = 0;
+    const usage = payload?.usage || {}; const inUsed = Number(usage.input_tokens ?? inputTokens); const outUsed = Number(usage.output_tokens ?? estimatedOutput); const spend = estimateCost(Math.max(0, inUsed), Math.max(0, outUsed), env);
     totalTokens += Math.max(0, outUsed); totalSpend += spend; m.spend += spend;
     return { ...payload, irenx: { task: classify(prompt), selectedRoute: model, upstream: "openai-responses", webSearch: true, searchContextSize: context, latencyMs: latency, estimatedCostUsd: Number(spend.toFixed(6)), circuit: "CLOSED", strategy: "openai-web-search-v1" } };
   } finally { clearTimeout(timer); }
 }
 
 async function routeAI(prompt: string, env: Env, model?: string) {
-  if (env.OPENAI_API_KEY) {
-    try { return await routeOpenAI(prompt, env); }
-    catch (openaiError) {
-      if (!env.OMNIROUTE_BASE_URL || !env.OMNIROUTE_API_KEY) throw openaiError;
-    }
-  }
-  const base = (env.OMNIROUTE_BASE_URL || "").replace(/\/$/, "");
-  const key = env.OMNIROUTE_API_KEY || "";
+  if (env.OPENAI_API_KEY) { try { return await routeOpenAI(prompt, env); } catch (openaiError) { if (!env.OMNIROUTE_BASE_URL || !env.OMNIROUTE_API_KEY) throw openaiError; } }
+  const base = (env.OMNIROUTE_BASE_URL || "").replace(/\/$/, ""); const key = env.OMNIROUTE_API_KEY || "";
   if (!base || !key) throw new Error("No AI provider is configured in Cloudflare secrets");
-  const inputTokens = estimateTokens(prompt);
-  const outputTokens = envNum(env, "IRENX_EST_OUTPUT_TOKENS", 1200);
-  const budget = envNum(env, "IRENX_AI_BUDGET_USD", 2);
-  const maxRequests = envNum(env, "IRENX_AI_MAX_REQUESTS", 100);
-  const maxTokens = envNum(env, "IRENX_AI_MAX_TOKENS", 200000);
-  const projected = estimateCost(inputTokens, outputTokens, env);
-  if (totalRequests >= maxRequests) throw new Error("IRENX quota guard: request limit reached");
-  if (totalTokens + inputTokens > maxTokens) throw new Error("IRENX quota guard: token limit reached");
-  if (totalSpend + projected > budget) throw new Error("IRENX budget guard: projected request exceeds remaining budget");
-  const task = classify(prompt);
-  const selected = model || (task === "coding" || task === "debugging" ? "auto/coding:pro" : task === "reasoning" || task === "analysis" || task === "trading" ? "auto/reasoning:pro" : task === "vision" ? "auto/vision:pro" : "auto");
-  const m = metric("omniroute");
-  if (circuitOpen(m, env)) throw new Error("IRENX circuit breaker: OmniRoute is temporarily open");
-  totalRequests++; totalTokens += inputTokens;
-  const started = Date.now();
-  const timeout = envNum(env, "IRENX_AI_TIMEOUT_MS", 45000);
-  const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeout);
+  const inputTokens = estimateTokens(prompt); const outputTokens = envNum(env, "IRENX_EST_OUTPUT_TOKENS", 1200); const budget = envNum(env, "IRENX_AI_BUDGET_USD", 2); const maxRequests = envNum(env, "IRENX_AI_MAX_REQUESTS", 100); const maxTokens = envNum(env, "IRENX_AI_MAX_TOKENS", 200000); const projected = estimateCost(inputTokens, outputTokens, env);
+  if (totalRequests >= maxRequests) throw new Error("IRENX quota guard: request limit reached"); if (totalTokens + inputTokens > maxTokens) throw new Error("IRENX quota guard: token limit reached"); if (totalSpend + projected > budget) throw new Error("IRENX budget guard: projected request exceeds remaining budget");
+  const task = classify(prompt); const selected = model || (task === "coding" || task === "debugging" ? "auto/coding:pro" : task === "reasoning" || task === "analysis" || task === "trading" ? "auto/reasoning:pro" : task === "vision" ? "auto/vision:pro" : "auto"); const m = metric("omniroute");
+  if (circuitOpen(m, env)) throw new Error("IRENX circuit breaker: OmniRoute is temporarily open"); totalRequests++; totalTokens += inputTokens;
+  const started = Date.now(); const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), envNum(env, "IRENX_AI_TIMEOUT_MS", 45000));
   try {
     const response = await fetch(`${base}/v1/chat/completions`, { method: "POST", signal: controller.signal, headers: { authorization: `Bearer ${key}`, "content-type": "application/json", accept: "application/json" }, body: JSON.stringify({ model: selected, messages: [{ role: "user", content: prompt }] }) });
     const latency = Date.now() - started; m.requests++; m.latency += latency;
@@ -134,30 +130,22 @@ async function routeAI(prompt: string, env: Env, model?: string) {
 
 function createMcpServer() {
   const server = new McpServer({ name: "IRENX Cloudflare MCP", version: "1.1.0" });
-  server.registerTool("search", { description: "Search IRENX public documentation and capabilities.", inputSchema: { query: z.string().min(1) } }, async ({ query }) => {
-    const q = query.toLowerCase();
-    const results = Object.entries(docs).filter(([, d]) => `${d.title} ${d.text}`.toLowerCase().includes(q) || q.split(/\s+/).some(term => term.length > 2 && `${d.title} ${d.text}`.toLowerCase().includes(term))).map(([id, d]) => ({ id, title: d.title, url: d.url }));
-    return { structuredContent: { results }, content: [{ type: "text", text: JSON.stringify({ results }) }] };
-  });
-  server.registerTool("fetch", { description: "Fetch an IRENX documentation item by ID.", inputSchema: { id: z.string().min(1) } }, async ({ id }) => {
-    const d = docs[id]; if (!d) throw new Error(`Document not found: ${id}`);
-    const result = { id, title: d.title, text: d.text, url: d.url, metadata: { source: "irenx-cloudflare-worker" } };
-    return { structuredContent: result, content: [{ type: "text", text: JSON.stringify(result) }] };
-  });
+  server.registerTool("search", { description: "Search IRENX public documentation and capabilities.", inputSchema: { query: z.string().min(1) } }, async ({ query }) => { const q = query.toLowerCase(); const results = Object.entries(docs).filter(([, d]) => `${d.title} ${d.text}`.toLowerCase().includes(q) || q.split(/\s+/).some(term => term.length > 2 && `${d.title} ${d.text}`.toLowerCase().includes(term))).map(([id, d]) => ({ id, title: d.title, url: d.url })); return { structuredContent: { results }, content: [{ type: "text", text: JSON.stringify({ results }) }] }; });
+  server.registerTool("fetch", { description: "Fetch an IRENX documentation item by ID.", inputSchema: { id: z.string().min(1) } }, async ({ id }) => { const d = docs[id]; if (!d) throw new Error(`Document not found: ${id}`); const result = { id, title: d.title, text: d.text, url: d.url, metadata: { source: "irenx-cloudflare-worker" } }; return { structuredContent: result, content: [{ type: "text", text: JSON.stringify(result) }] }; });
   return server;
 }
 const mcpHandler = createMcpHandler(createMcpServer, { route: "/mcp", allowedHostnames: ["ai.irenx.com", "irenx-ai.workers.dev"] });
 
 export default { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
   const url = new URL(request.url);
-  if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) return mcpHandler(request, env, ctx);
-  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "Content-Type, Authorization, Mcp-Session-Id" } });
-  if (url.pathname === "/" || url.pathname === "/api") return json({ service: "IRENX Cloudflare-native", version: "1.1.0", endpoints: ["/api/health", "/api/infra/cloudflare", "/api/ai/route", "/api/ai", "/api/dify/health", "/mcp"] });
+  if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) { const auth = await protect(request, env, "/mcp", "read"); if (!auth.allowed) return json({ error: "Unauthorized", reason: auth.reason }, 401); return mcpHandler(request, env, ctx); }
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "Content-Type, Authorization, X-API-Key, Mcp-Session-Id" } });
+  if (url.pathname === "/" || url.pathname === "/api") return json({ service: "IRENX Cloudflare-native", version: "1.2.0", endpoints: ["/api/health", "/api/infra/cloudflare", "/api/ai/route", "/api/ai", "/api/dify/health", "/mcp"], security: { gatewayAuth: Boolean(env.IRENX_GATEWAY_API_KEY), mcpAuthRequired: env.IRENX_MCP_AUTH_REQUIRED === "1", rbac: env.IRENX_RBAC_DEFAULT_ROLE || "viewer" } });
   if (url.pathname === "/api/infra/cloudflare") return json(await getCloudflareHealth(url.searchParams.get("refresh") === "1"));
-  if (url.pathname === "/api/health") { const cloudflare = await getCloudflareHealth(); return json({ ok: true, service: "irenx-cloudflare", environment: env.IRENX_ENV, domain: env.IRENX_PUBLIC_ORIGIN, infrastructure: { cloudflare }, mcp: "/mcp", upstreams: { openai: Boolean(env.OPENAI_API_KEY), omniroute: Boolean(env.OMNIROUTE_BASE_URL && env.OMNIROUTE_API_KEY), dify: Boolean(env.DIFY_BASE_URL && env.DIFY_API_KEY) }, totals: { requests: totalRequests, tokens: totalTokens, estimatedSpendUsd: Number(totalSpend.toFixed(6)) }, time: new Date().toISOString() }); }
-  if (url.pathname === "/api/ai/route") { const prompt = url.searchParams.get("prompt") || ""; if (!prompt) return json({ error: "prompt is required" }, 400); return json({ task: classify(prompt), route: env.OPENAI_API_KEY ? (env.IRENX_OPENAI_MODEL || "gpt-5.6") : classify(prompt) === "coding" ? "auto/coding:pro" : classify(prompt) === "trading" ? "auto/reasoning:pro" : "auto", webSearch: Boolean(env.OPENAI_API_KEY) }); }
-  if (url.pathname === "/api/ai" && request.method === "POST") { try { const body: any = await request.json(); const prompt = typeof body?.prompt === "string" ? body.prompt : ""; if (!prompt.trim()) return json({ error: "prompt is required" }, 400); return json(await routeAI(prompt, env, typeof body?.model === "string" ? body.model : undefined)); } catch (e) { return json({ error: e instanceof Error ? e.message : "IRENX AI failure" }, 502); } }
+  if (url.pathname === "/api/health") { const cloudflare = await getCloudflareHealth(); return json({ ok: true, service: "irenx-cloudflare", environment: env.IRENX_ENV, domain: env.IRENX_PUBLIC_ORIGIN, infrastructure: { cloudflare }, mcp: "/mcp", security: { gatewayAuth: Boolean(env.IRENX_GATEWAY_API_KEY), mcpAuthRequired: env.IRENX_MCP_AUTH_REQUIRED === "1", rbacDefaultRole: env.IRENX_RBAC_DEFAULT_ROLE || "viewer", auditEnabled: env.IRENX_AUDIT_ENABLED === "1" }, upstreams: { openai: Boolean(env.OPENAI_API_KEY), omniroute: Boolean(env.OMNIROUTE_BASE_URL && env.OMNIROUTE_API_KEY), dify: Boolean(env.DIFY_BASE_URL && env.DIFY_API_KEY) }, totals: { requests: totalRequests, tokens: totalTokens, estimatedSpendUsd: Number(totalSpend.toFixed(6)) }, time: new Date().toISOString() }); }
+  if (url.pathname === "/api/ai/route") { const auth = await protect(request, env, "/api/ai/route", "read"); if (!auth.allowed) return json({ error: "Unauthorized", reason: auth.reason }, 401); const prompt = url.searchParams.get("prompt") || ""; if (!prompt) return json({ error: "prompt is required" }, 400); return json({ task: classify(prompt), route: env.OPENAI_API_KEY ? (env.IRENX_OPENAI_MODEL || "gpt-5.6") : classify(prompt) === "coding" ? "auto/coding:pro" : classify(prompt) === "trading" ? "auto/reasoning:pro" : "auto", webSearch: Boolean(env.OPENAI_API_KEY) }); }
+  if (url.pathname === "/api/ai" && request.method === "POST") { const auth = await protect(request, env, "/api/ai", "read"); if (!auth.allowed) return json({ error: "Unauthorized", reason: auth.reason }, 401); try { const body: any = await request.json(); const prompt = typeof body?.prompt === "string" ? body.prompt : ""; if (!prompt.trim()) return json({ error: "prompt is required" }, 400); return json(await routeAI(prompt, env, typeof body?.model === "string" ? body.model : undefined)); } catch (e) { return json({ error: e instanceof Error ? e.message : "IRENX AI failure" }, 502); } }
   if (url.pathname === "/api/dify/health") return json({ ok: Boolean(env.DIFY_BASE_URL && env.DIFY_API_KEY), configured: Boolean(env.DIFY_BASE_URL && env.DIFY_API_KEY), baseUrl: env.DIFY_BASE_URL || null });
-  if (url.pathname === "/api/dify/workflows/run" && request.method === "POST") { if (!env.DIFY_BASE_URL || !env.DIFY_API_KEY) return json({ error: "Dify upstream is not configured" }, 503); const body = await request.text(); const response = await fetch(`${env.DIFY_BASE_URL.replace(/\/$/, "")}/v1/workflows/run`, { method: "POST", headers: { authorization: `Bearer ${env.DIFY_API_KEY}`, "content-type": "application/json" }, body }); return new Response(response.body, { status: response.status, headers: { "content-type": response.headers.get("content-type") || "application/json", "cache-control": "no-store" } }); }
+  if (url.pathname === "/api/dify/workflows/run" && request.method === "POST") { const auth = await protect(request, env, "/api/dify/workflows/run", "write"); if (!auth.allowed) return json({ error: "Unauthorized", reason: auth.reason }, 403); if (!env.DIFY_BASE_URL || !env.DIFY_API_KEY) return json({ error: "Dify upstream is not configured" }, 503); const body = await request.text(); const response = await fetch(`${env.DIFY_BASE_URL.replace(/\/$/, "")}/v1/workflows/run`, { method: "POST", headers: { authorization: `Bearer ${env.DIFY_API_KEY}`, "content-type": "application/json" }, body }); return new Response(response.body, { status: response.status, headers: { "content-type": response.headers.get("content-type") || "application/json", "cache-control": "no-store" } }); }
   return json({ error: "Not found" }, 404);
 } } satisfies ExportedHandler<Env>;

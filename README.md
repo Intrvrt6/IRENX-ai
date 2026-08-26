@@ -93,6 +93,7 @@ IRENX-ai/
 ├── rust/                      # Rust/WASM edge canary
 ├── docs/                      # architecture + operations
 │   └── assets/                # premium repository showcase graphics
+├── assets/                    # project/support artwork and QRIS
 ├── .github/workflows/         # CI / governance / regression gates
 ├── Dockerfile                 # self-hosted image
 ├── docker-compose.yml         # production compose stack
@@ -275,6 +276,25 @@ IRENX follows a controlled architecture boundary:
 - Rust/WASM is treated as a canary until verified.
 - CI is designed to fail fast on regressions.
 - Production deployment is self-hosted and explicit.
+
+---
+
+## ❤️ Support IRENX
+
+IRENX dibangun untuk menjadi platform AI & MCP open-source yang mudah dikembangkan, aman, dan bermanfaat untuk developer, trader, creator, dan siapa pun yang ingin membangun teknologi bersama.
+
+Jika project ini terasa berguna, kamu bisa ikut membantu dengan **code, issue, dokumentasi, testing, ide, atau donasi**. Dukungan tersebut membantu pengembangan fitur, server/infrastruktur, keamanan, riset, dan tools open-source.
+
+### Donasi QRIS
+
+![QRIS IRENX Donation](assets/qris-donation.svg)
+
+**Penerima:** EVANESCET, DIGITAL & KREATIF  
+**NMID:** `ID1026498341662`
+
+👉 [Baca halaman Support IRENX](docs/SUPPORT.md)
+
+> **OPEN SOURCE • OPEN FUTURE • BUILD TOGETHER**
 
 ---
 
