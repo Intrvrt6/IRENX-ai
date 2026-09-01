@@ -1,190 +1,251 @@
 #!/usr/bin/env node
 import http from "node:http";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 
 const PORT = Number(process.env.IRENX_PORT || 8787);
 const HOST = process.env.IRENX_HOST || "127.0.0.1";
-const API_KEY = process.env.OPENAI_API_KEY || "";
-const MODEL = process.env.IRENX_OPENAI_MODEL || "gpt-5.6";
-const MARKET_DATA_URL = process.env.IRENX_MARKET_DATA_URL || "";
-const TWELVEDATA_API_KEY = process.env.TWELVEDATA_API_KEY || "";
-const TWELVEDATA_BASE_URL = "https://api.twelvedata.com";
-const REQUEST_TIMEOUT_MS = Number(process.env.IRENX_AI_TIMEOUT_MS || 45000);
+const APP_HOME = process.env.IRENX_HOME || path.join(os.homedir(), ".irenx");
+const MARKET_FILE = process.env.IRENX_MARKET_FILE || path.join(APP_HOME, "market.json");
 const MAX_BODY_BYTES = 1024 * 1024;
-const FAILURE_THRESHOLD = Number(process.env.IRENX_CB_FAILURE_THRESHOLD || 3);
-const COOLDOWN_MS = Number(process.env.IRENX_CB_COOLDOWN_MS || 30000);
-const MAX_REQUESTS = Number(process.env.IRENX_AI_MAX_REQUESTS || 100);
-const MAX_TOKENS = Number(process.env.IRENX_AI_MAX_TOKENS || 200000);
-const MAX_OUTPUT_TOKENS = Number(process.env.IRENX_MAX_OUTPUT_TOKENS || 4096);
 
-const SYSTEM = `You are IRENX, the user's trading analysis engine.
-Use the mandatory sequence: REGIME -> LIQUIDITY -> REFLEXIVITY -> OROCHI -> VMAP -> EXECUTION -> RISK MANAGEMENT.
-VMAP is a confirmation/filter, never a standalone trigger. No single indicator can create a trade.
-Prefer WAIT or NO TRADE when evidence is insufficient.
-Never invent current market prices, entry, stop loss, take profit, spread, volume, or market structure.
-If verified live market data is unavailable, explicitly state LIVE MARKET DATA UNAVAILABLE and return WAIT/NO TRADE rather than fabricated numeric levels.
-For IRENX SIGNAL, IRENX SCALPING, and IRENX PRIME return: Bias, Entry/Zone, SL, TP1, TP2, TP3, Trigger/Confirmation, Status.
-Keep the output concise and operational. Signals are analysis, not a guarantee of profit.`;
+const SEQUENCE = [
+  "REGIME",
+  "LIQUIDITY",
+  "REFLEXIVITY",
+  "OROCHI",
+  "VMAP",
+  "EXECUTION",
+  "RISK MANAGEMENT",
+];
+
+const SYSTEM = `IRENX TERMUX NO-API is a deterministic local trading-analysis engine.\nMandatory sequence: ${SEQUENCE.join(" -> ")}.\nVMAP is confirmation only; no single indicator may trigger a trade.\nNever invent prices or market data. If local market data is missing or insufficient, return WAIT/NO TRADE.\nAnalysis is not a guarantee of profit.`;
 
 let totalRequests = 0;
-let totalTokens = 0;
-let consecutiveFailures = 0;
-let circuitOpenedAt = 0;
 
 function json(res, status, data) {
   const body = JSON.stringify(data);
-  if (status === 204) {
-    res.writeHead(204, { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "Content-Type, Authorization" });
-    return res.end();
-  }
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "Content-Type, Authorization" });
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-headers": "Content-Type",
+  });
   res.end(body);
 }
 
-function circuitOpen() {
-  if (circuitOpenedAt && Date.now() - circuitOpenedAt >= COOLDOWN_MS) {
-    circuitOpenedAt = 0;
-    consecutiveFailures = 0;
-  }
-  return consecutiveFailures >= FAILURE_THRESHOLD && circuitOpenedAt > 0;
+function ensureHome() {
+  fs.mkdirSync(APP_HOME, { recursive: true });
 }
 
-function classify(prompt) {
-  const p = prompt.toLowerCase();
-  if (/\b(code|coding|program|typescript|javascript|python|mql4|mql5|api|refactor)\b/.test(p)) return "coding";
-  if (/\b(debug|bug|error|exception|stack trace|fix)\b/.test(p)) return "debugging";
-  if (/\b(image|vision|screenshot|diagram)\b/.test(p)) return "vision";
-  if (/\b(trading|forex|xauusd|gold|signal|scalp|entry|stop loss|take profit)\b/.test(p)) return "trading";
-  if (/\b(reason|prove|derive|architecture|design)\b/.test(p)) return "reasoning";
-  if (/\b(analy[sz]e|analysis|compare|research|evaluate)\b/.test(p)) return "analysis";
-  if (/\b(readme|documentation|docs|document|summarize)\b/.test(p)) return "docs";
-  return "general";
-}
-
-function extractSymbol(prompt) {
-  const match = prompt.match(/\b(XAUUSD|XAGUSD|EURUSD|GBPUSD|USDJPY|AUDUSD|USDCAD|USDCHF|NAS100|NDX)\b/i);
-  return match?.[1]?.toUpperCase() || "XAUUSD";
-}
-
-function twelveDataSymbol(symbol) {
-  const map = { XAUUSD: "XAU/USD", XAGUSD: "XAG/USD", EURUSD: "EUR/USD", GBPUSD: "GBP/USD", USDJPY: "USD/JPY", AUDUSD: "AUD/USD", USDCAD: "USD/CAD", USDCHF: "USD/CHF", NAS100: "NDX" };
-  return map[symbol] || symbol;
-}
-
-async function fetchMarketData(symbol) {
-  if (MARKET_DATA_URL) {
-    const url = new URL(MARKET_DATA_URL);
-    url.searchParams.set("symbol", symbol);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
-    try {
-      const response = await fetch(url, { signal: controller.signal, headers: { accept: "application/json" } });
-      if (!response.ok) throw new Error(`Market data HTTP ${response.status}`);
-      const data = await response.json();
-      if (!data || typeof data !== "object") throw new Error("Market data response is not an object");
-      return { provider: "configured-endpoint", symbol, data };
-    } finally {
-      clearTimeout(timer);
-    }
+function loadMarket(symbol = "XAUUSD") {
+  if (!fs.existsSync(MARKET_FILE)) {
+    return { symbol, candles: [], source: "none", file: MARKET_FILE };
   }
 
-  if (!TWELVEDATA_API_KEY) return null;
-  const tdSymbol = twelveDataSymbol(symbol);
-  const url = new URL(`${TWELVEDATA_BASE_URL}/time_series`);
-  url.searchParams.set("symbol", tdSymbol);
-  url.searchParams.set("interval", process.env.IRENX_MARKET_INTERVAL || "1min");
-  url.searchParams.set("outputsize", process.env.IRENX_MARKET_OUTPUTSIZE || "100");
-  url.searchParams.set("apikey", TWELVEDATA_API_KEY);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
+  let parsed;
   try {
-    const response = await fetch(url, { signal: controller.signal, headers: { accept: "application/json" } });
-    const data = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(`Twelve Data HTTP ${response.status}`);
-    if (!data || data.status === "error" || data.code) throw new Error(data?.message || "Twelve Data provider error");
-    if (!Array.isArray(data.values) || data.values.length === 0) throw new Error("Twelve Data returned no candles");
-    return { provider: "twelvedata", symbol, providerSymbol: tdSymbol, interval: data.meta?.interval || process.env.IRENX_MARKET_INTERVAL || "1min", timezone: data.meta?.timezone || null, values: data.values };
-  } finally {
-    clearTimeout(timer);
+    parsed = JSON.parse(fs.readFileSync(MARKET_FILE, "utf8"));
+  } catch (error) {
+    throw new Error(`Invalid local market JSON: ${error instanceof Error ? error.message : "parse failed"}`);
   }
+
+  const candles = Array.isArray(parsed) ? parsed : parsed.candles;
+  const actualSymbol = String(parsed?.symbol || symbol).toUpperCase();
+  if (!Array.isArray(candles)) throw new Error("Local market file must contain a candles array");
+
+  const clean = candles
+    .map((c) => ({
+      time: c.time ?? c.datetime ?? c.date ?? null,
+      open: Number(c.open),
+      high: Number(c.high),
+      low: Number(c.low),
+      close: Number(c.close),
+      volume: Number.isFinite(Number(c.volume)) ? Number(c.volume) : 0,
+    }))
+    .filter((c) => [c.open, c.high, c.low, c.close].every(Number.isFinite) && c.high >= c.low)
+    .slice(-500);
+
+  return { symbol: actualSymbol, candles: clean, source: "local-file", file: MARKET_FILE };
 }
 
-function responseText(payload) {
-  if (typeof payload?.output_text === "string" && payload.output_text.trim()) return payload.output_text.trim();
-  const chunks = [];
-  for (const item of payload?.output || []) {
-    for (const content of item?.content || []) {
-      if (typeof content?.text === "string") chunks.push(content.text);
-    }
-  }
-  return chunks.join("\n").trim();
+function average(values) {
+  return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
 }
 
-async function ai(prompt) {
-  if (!API_KEY) throw new Error("OPENAI_API_KEY belum diset di Termux");
-  if (circuitOpen()) throw new Error("IRENX circuit breaker: OpenAI sementara diblokir setelah kegagalan beruntun");
-  if (totalRequests >= MAX_REQUESTS) throw new Error("IRENX quota guard: request limit reached");
+function ema(values, period) {
+  if (values.length < period) return null;
+  let e = average(values.slice(0, period));
+  const k = 2 / (period + 1);
+  for (let i = period; i < values.length; i++) e = values[i] * k + e * (1 - k);
+  return e;
+}
 
-  const symbol = extractSymbol(prompt);
-  let marketData = null;
-  let marketDataStatus = "LIVE MARKET DATA UNAVAILABLE";
-  if (MARKET_DATA_URL || TWELVEDATA_API_KEY) {
-    try {
-      marketData = await fetchMarketData(symbol);
-      marketDataStatus = marketData?.provider === "twelvedata" ? "VERIFIED LIVE MARKET DATA PROVIDED BY TWELVE DATA" : "VERIFIED MARKET DATA PROVIDED BY CONFIGURED ENDPOINT";
-    } catch (error) {
-      marketDataStatus = `LIVE MARKET DATA UNAVAILABLE (${error instanceof Error ? error.message : "fetch failed"})`;
-    }
+function atr(candles, period = 14) {
+  if (candles.length < period + 1) return null;
+  const tr = [];
+  for (let i = 1; i < candles.length; i++) {
+    const c = candles[i];
+    const p = candles[i - 1];
+    tr.push(Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close)));
   }
+  return average(tr.slice(-period));
+}
 
-  const input = `${SYSTEM}\n\nMarket-data status: ${marketDataStatus}\n${marketData ? `Verified market data JSON:\n${JSON.stringify(marketData)}` : "No verified market data was supplied."}\n\nUser: ${prompt}`;
-  totalRequests++;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+function rsi(closes, period = 14) {
+  if (closes.length < period + 1) return null;
+  let gains = 0;
+  let losses = 0;
+  const start = closes.length - period;
+  for (let i = start; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d >= 0) gains += d;
+    else losses -= d;
+  }
+  if (losses === 0) return 100;
+  return 100 - 100 / (1 + gains / losses);
+}
 
-  try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      signal: controller.signal,
-      headers: { authorization: `Bearer ${API_KEY}`, "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({ model: MODEL, input, max_output_tokens: MAX_OUTPUT_TOKENS, store: false }),
-    });
+function vwap(candles, period = 50) {
+  const rows = candles.slice(-period);
+  let pv = 0;
+  let v = 0;
+  for (const c of rows) {
+    const typical = (c.high + c.low + c.close) / 3;
+    const volume = c.volume > 0 ? c.volume : 1;
+    pv += typical * volume;
+    v += volume;
+  }
+  return v ? pv / v : null;
+}
 
-    const raw = await response.text();
-    let payload = {};
-    try { payload = raw ? JSON.parse(raw) : {}; } catch { payload = { raw }; }
+function fmt(value) {
+  return Number.isFinite(value) ? Number(value.toFixed(2)) : null;
+}
 
-    if (!response.ok) {
-      consecutiveFailures++;
-      if (consecutiveFailures >= FAILURE_THRESHOLD) circuitOpenedAt = Date.now();
-      const upstream = payload?.error || {};
-      const detail = upstream?.message || payload?.message || `OpenAI HTTP ${response.status}`;
-      const error = new Error(`${detail} [HTTP ${response.status}${upstream?.code ? `; code=${upstream.code}` : ""}]`);
-      error.status = response.status;
-      throw error;
-    }
+function analyze(symbol = "XAUUSD") {
+  const market = loadMarket(symbol);
+  const candles = market.candles;
+  const base = {
+    service: "irenx-local",
+    mode: "termux-no-api",
+    standalone: true,
+    symbol: market.symbol,
+    source: market.source,
+    marketFile: market.file,
+    sequence: SEQUENCE,
+  };
 
-    consecutiveFailures = 0;
-    circuitOpenedAt = 0;
-    const usage = payload?.usage || {};
-    totalTokens += Number(usage.input_tokens || 0) + Number(usage.output_tokens || 0);
-    if (totalTokens > MAX_TOKENS) throw new Error("IRENX quota guard: token limit reached");
-
-    const output = responseText(payload);
-    if (!output) throw new Error(`OpenAI returned no text output (response_id=${payload?.id || "unknown"})`);
-
+  if (candles.length < 20) {
     return {
-      output_text: output,
-      model: MODEL,
-      local: true,
-      task: classify(prompt),
-      marketData: marketDataStatus,
-      marketProvider: marketData?.provider || null,
-      symbol,
-      irenx: { sequence: ["REGIME", "LIQUIDITY", "REFLEXIVITY", "OROCHI", "VMAP", "EXECUTION", "RISK MANAGEMENT"], status: "READY" },
+      ...base,
+      status: "WAIT",
+      tradeStatus: "NO TRADE",
+      reason: "INSUFFICIENT LOCAL MARKET DATA",
+      required: "At least 20 valid OHLC candles are required; 50+ is recommended for stronger confirmation.",
+      indicators: null,
     };
-  } finally {
-    clearTimeout(timer);
   }
+
+  const closes = candles.map((c) => c.close);
+  const last = candles.at(-1);
+  const prev = candles.at(-2);
+  const ema20 = ema(closes, 20);
+  const ema50 = ema(closes, 50);
+  const atr14 = atr(candles, 14);
+  const rsi14 = rsi(closes, 14);
+  const vwap50 = vwap(candles, 50);
+  const recent = candles.slice(-20);
+  const swingHigh = Math.max(...recent.slice(0, -1).map((c) => c.high));
+  const swingLow = Math.min(...recent.slice(0, -1).map((c) => c.low));
+  const range = Math.max(last.high - last.low, atr14 || 0);
+  const momentum = last.close - prev.close;
+
+  const trendBull = ema20 !== null && ema50 !== null && ema20 > ema50 && last.close > ema20;
+  const trendBear = ema20 !== null && ema50 !== null && ema20 < ema50 && last.close < ema20;
+  const regime = trendBull ? "BULLISH TREND" : trendBear ? "BEARISH TREND" : "RANGE / TRANSITION";
+
+  const sweepLow = last.low < swingLow && last.close > swingLow;
+  const sweepHigh = last.high > swingHigh && last.close < swingHigh;
+  const liquidity = sweepLow ? "SELL-SIDE LIQUIDITY SWEEP" : sweepHigh ? "BUY-SIDE LIQUIDITY SWEEP" : "NO CONFIRMED SWEEP";
+
+  const reflexivity = momentum > 0 ? "POSITIVE MOMENTUM" : momentum < 0 ? "NEGATIVE MOMENTUM" : "NEUTRAL MOMENTUM";
+  const orochi = sweepLow && momentum > 0 ? "BULLISH REVERSAL RESPONSE" : sweepHigh && momentum < 0 ? "BEARISH REVERSAL RESPONSE" : "NO REVERSAL CONFIRMED";
+  const vmapSide = vwap50 !== null ? (last.close > vwap50 ? "PRICE ABOVE VMAP" : "PRICE BELOW VMAP") : "VMAP UNAVAILABLE";
+
+  let bias = "NEUTRAL";
+  let status = "WAIT";
+  let trigger = "Require structure + liquidity + momentum + VMAP alignment.";
+
+  const buyConfirmed = trendBull && last.close > (vwap50 ?? last.close) && (sweepLow || momentum > 0) && rsi14 !== null && rsi14 < 75;
+  const sellConfirmed = trendBear && last.close < (vwap50 ?? last.close) && (sweepHigh || momentum < 0) && rsi14 !== null && rsi14 > 25;
+
+  if (buyConfirmed) {
+    bias = "BUY";
+    status = "SETUP VALID — WAIT FOR EXECUTION TRIGGER";
+    trigger = sweepLow ? "Bullish liquidity sweep + close confirmation above VMAP." : "Bullish structure + positive momentum + VMAP alignment.";
+  } else if (sellConfirmed) {
+    bias = "SELL";
+    status = "SETUP VALID — WAIT FOR EXECUTION TRIGGER";
+    trigger = sweepHigh ? "Bearish liquidity sweep + close confirmation below VMAP." : "Bearish structure + negative momentum + VMAP alignment.";
+  }
+
+  const entry = bias === "BUY" ? last.close : bias === "SELL" ? last.close : null;
+  const risk = atr14 ? Math.max(atr14 * 0.8, range * 0.5) : null;
+  const sl = entry !== null && risk !== null ? (bias === "BUY" ? entry - risk : entry + risk) : null;
+  const tp1 = entry !== null && risk !== null ? (bias === "BUY" ? entry + risk : entry - risk) : null;
+  const tp2 = entry !== null && risk !== null ? (bias === "BUY" ? entry + risk * 2 : entry - risk * 2) : null;
+  const tp3 = entry !== null && risk !== null ? (bias === "BUY" ? entry + risk * 3 : entry - risk * 3) : null;
+
+  return {
+    ...base,
+    status,
+    tradeStatus: status.startsWith("SETUP") ? "WAIT EXECUTION" : "NO TRADE",
+    bias,
+    entryZone: entry === null ? null : { entry: fmt(entry), zone: [fmt(entry - (atr14 || 0) * 0.15), fmt(entry + (atr14 || 0) * 0.15)] },
+    sl: fmt(sl),
+    tp1: fmt(tp1),
+    tp2: fmt(tp2),
+    tp3: fmt(tp3),
+    triggerConfirmation: trigger,
+    stages: { regime, liquidity, reflexivity, orochi, vmap: vmapSide },
+    indicators: { close: fmt(last.close), ema20: fmt(ema20), ema50: fmt(ema50), atr14: fmt(atr14), rsi14: fmt(rsi14), vwap50: fmt(vwap50), swingHigh: fmt(swingHigh), swingLow: fmt(swingLow) },
+    candleTime: last.time,
+    candlesUsed: candles.length,
+    riskManagement: "Risk per trade must be defined by the user/broker account. IRENX does not size or execute orders.",
+  };
+}
+
+function ask(prompt) {
+  const p = String(prompt || "").trim();
+  const upper = p.toUpperCase();
+  if (!p) return { error: "prompt is required" };
+  if (upper.includes("IRENX TEST") || upper === "TEST") {
+    return {
+      service: "irenx-local",
+      mode: "termux-no-api",
+      status: "READY",
+      apiRequired: false,
+      networkAI: false,
+      marketSource: "LOCAL FILE ONLY",
+      sequence: SEQUENCE,
+      message: "IRENX TEST OK — local deterministic engine is running without OpenAI/Twelve Data/API keys.",
+    };
+  }
+  if (/^(IRENX )?(SIGNAL|SCALPING|PRIME)/i.test(p) || /XAUUSD|XAGUSD|EURUSD|GBPUSD|USDJPY|NAS100/i.test(p)) {
+    const symbol = (p.match(/\b(XAUUSD|XAGUSD|EURUSD|GBPUSD|USDJPY|AUDUSD|USDCAD|USDCHF|NAS100|NDX)\b/i)?.[1] || "XAUUSD").toUpperCase();
+    return analyze(symbol);
+  }
+  return {
+    service: "irenx-local",
+    mode: "termux-no-api",
+    status: "READY",
+    apiRequired: false,
+    message: "IRENX NO-API mode does not contain a cloud LLM. Use signal/scalping/prime with local OHLC data, or use IRENX commands/help.",
+    supported: ["health", "market", "signal", "scalping", "prime", "ask \"IRENX TEST\""],
+  };
 }
 
 async function readBody(req) {
@@ -196,56 +257,59 @@ async function readBody(req) {
   return data;
 }
 
+function health() {
+  const marketConfigured = fs.existsSync(MARKET_FILE);
+  return {
+    ok: true,
+    service: "irenx-local",
+    mode: "termux-no-api",
+    standalone: true,
+    apiRequired: false,
+    networkAI: false,
+    marketDataConfigured: marketConfigured,
+    marketProvider: marketConfigured ? "local-file" : null,
+    model: null,
+    circuit: "DISABLED — no cloud API",
+    totals: { requests: totalRequests },
+    marketFile: MARKET_FILE,
+    sequence: SEQUENCE,
+    time: new Date().toISOString(),
+  };
+}
+
+ensureHome();
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     if (req.method === "OPTIONS") return json(res, 204, {});
-    if (url.pathname === "/" || url.pathname === "/api") return json(res, 200, { service: "IRENX Local", mode: "termux", model: MODEL, standalone: true, endpoints: ["/api/health", "/api/ai", "/api/market"] });
-    if (url.pathname === "/api/health" && req.method === "GET") return json(res, 200, {
-      ok: true,
-      service: "irenx-local",
-      mode: "termux",
-      standalone: true,
-      aiConfigured: Boolean(API_KEY),
-      marketDataConfigured: Boolean(MARKET_DATA_URL || TWELVEDATA_API_KEY),
-      marketProvider: TWELVEDATA_API_KEY ? "twelvedata" : (MARKET_DATA_URL ? "configured-endpoint" : null),
-      model: MODEL,
-      circuit: circuitOpen() ? "OPEN" : "CLOSED",
-      totals: { requests: totalRequests, tokens: totalTokens },
-      time: new Date().toISOString(),
-    });
+    if (url.pathname === "/" || url.pathname === "/api") return json(res, 200, { service: "IRENX Local", mode: "termux-no-api", standalone: true, apiRequired: false, endpoints: ["/api/health", "/api/ai", "/api/market"] });
+    if (url.pathname === "/api/health" && req.method === "GET") return json(res, 200, health());
     if (url.pathname === "/api/market" && req.method === "GET") {
       const symbol = (url.searchParams.get("symbol") || "XAUUSD").toUpperCase();
-      try {
-        const data = await fetchMarketData(symbol);
-        if (!data) return json(res, 503, { error: "market data unavailable", marketDataConfigured: false });
-        return json(res, 200, data);
-      } catch (error) {
-        return json(res, 503, { error: error instanceof Error ? error.message : "market data unavailable", marketDataConfigured: true });
-      }
+      return json(res, 200, loadMarket(symbol));
     }
     if (url.pathname === "/api/ai" && req.method === "POST") {
       const body = JSON.parse(await readBody(req) || "{}");
-      const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
-      if (!prompt) return json(res, 400, { error: "prompt is required" });
-      return json(res, 200, await ai(prompt));
+      totalRequests++;
+      return json(res, 200, ask(body.prompt));
     }
     if (url.pathname === "/api/ai" && req.method === "GET") {
-      const prompt = url.searchParams.get("prompt")?.trim() || "";
-      if (!prompt) return json(res, 400, { error: "prompt is required" });
-      return json(res, 200, await ai(prompt));
+      totalRequests++;
+      return json(res, 200, ask(url.searchParams.get("prompt")));
     }
     return json(res, 404, { error: "Not found" });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "IRENX local failure";
-    const status = Number(error?.status) || (/JSON|body too large|prompt is required/.test(message) ? 400 : 502);
-    return json(res, status, { error: message, service: "irenx-local", model: MODEL });
+    return json(res, 400, { error: error instanceof Error ? error.message : "IRENX local failure" });
   }
 });
 
-server.on("error", error => {
+server.on("error", (error) => {
   console.error(`IRENX Local server error: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
 });
 
-server.listen(PORT, HOST, () => console.log(`IRENX Local running at http://${HOST}:${PORT}`));
+server.listen(PORT, HOST, () => {
+  console.log(`IRENX TERMUX NO-API running at http://${HOST}:${PORT}`);
+  console.log(`Local market file: ${MARKET_FILE}`);
+});
