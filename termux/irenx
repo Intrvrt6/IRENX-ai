@@ -1,0 +1,63 @@
+#!/data/data/com.termux/files/usr/bin/bash
+set -euo pipefail
+
+BASE_URL="${IRENX_URL:-https://ai.irenx.com}"
+
+usage() {
+  cat <<'EOF'
+IRENX Termux CLI
+
+Usage:
+  ./termux/irenx health
+  ./termux/irenx signal XAUUSD
+  ./termux/irenx scalping XAUUSD
+  ./termux/irenx ask "your question"
+
+Environment:
+  IRENX_URL=https://ai.irenx.com
+EOF
+}
+
+urlencode() {
+  node -e 'console.log(encodeURIComponent(process.argv[1]))' "$1"
+}
+
+health() {
+  curl -fsS --max-time 20 "$BASE_URL/api/health"
+  printf '\n'
+}
+
+ask() {
+  local prompt="$1"
+  local encoded
+  encoded="$(urlencode "$prompt")"
+  curl -fsS --max-time 60 "$BASE_URL/api/ai?prompt=$encoded"
+  printf '\n'
+}
+
+command_name="${1:-help}"
+case "$command_name" in
+  health)
+    health
+    ;;
+  signal)
+    symbol="${2:-XAUUSD}"
+    ask "IRENX SIGNAL $symbol. Analyze using REGIME -> LIQUIDITY -> REFLEXIVITY -> OROCHI -> VMAP -> EXECUTION -> RISK MANAGEMENT. Return Bias, Entry/Zone, SL, TP1, TP2, TP3, Trigger/Confirmation, and Status. Do not invent live prices; if live market data is unavailable, say so and return WAIT/NO TRADE."
+    ;;
+  scalping)
+    symbol="${2:-XAUUSD}"
+    ask "IRENX SCALPING $symbol. Use the IRENX PRIME sequence REGIME -> LIQUIDITY -> REFLEXIVITY -> OROCHI -> VMAP -> EXECUTION -> RISK MANAGEMENT. Return Bias, Entry/Zone, SL, TP1, TP2, TP3, Trigger/Confirmation, and Status. Do not invent live prices; if live market data is unavailable, say so and return WAIT/NO TRADE."
+    ;;
+  ask)
+    [[ $# -ge 2 ]] || { echo "Usage: ./termux/irenx ask \"question\"" >&2; exit 2; }
+    ask "$2"
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    echo "Unknown command: $command_name" >&2
+    usage >&2
+    exit 2
+    ;;
+esac
