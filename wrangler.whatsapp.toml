@@ -1,0 +1,9 @@
+name = "irenx-whatsapp-bot"
+main = "worker/whatsapp-entry.ts"
+compatibility_date = "2026-07-28"
+
+[vars]
+IRENX_CORE_URL = "https://ai.irenx.com"
+
+[observability]
+enabled = true
