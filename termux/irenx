@@ -1,38 +1,55 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-BASE_URL="${IRENX_URL:-https://ai.irenx.com}"
+LOCAL_URL="${IRENX_LOCAL_URL:-http://127.0.0.1:8787}"
 
 usage() {
   cat <<'EOF'
-🔥 IRENX Termux CLI
+🔥 IRENX Termux — LOCAL MODE
 
 Usage:
+  ./termux/irenx start
   ./termux/irenx health
   ./termux/irenx signal [XAUUSD]
   ./termux/irenx scalping [XAUUSD]
   ./termux/irenx ask "your question"
 
 Environment:
-  IRENX_URL=https://ai.irenx.com
+  OPENAI_API_KEY=your-key
+  IRENX_OPENAI_MODEL=gpt-5.6
+  IRENX_PORT=8787
+
+No ai.irenx.com deployment is required.
 EOF
 }
 
+start() {
+  if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+    echo "OPENAI_API_KEY belum diset." >&2
+    echo 'Set dengan: export OPENAI_API_KEY="..."' >&2
+    exit 1
+  fi
+  exec node "$(cd "$(dirname "$0")" && pwd)/irenx-local.mjs"
+}
+
 health() {
-  curl -fsS --max-time 20 "$BASE_URL/api/health"
+  curl -fsS --max-time 10 "$LOCAL_URL/api/health"
   printf '\n'
 }
 
 ask() {
   local prompt="$1"
   node -e 'process.stdout.write(JSON.stringify({prompt:process.argv[1]}))' "$prompt" \
-    | curl -fsS --max-time 60 -X POST "$BASE_URL/api/ai" \
+    | curl -fsS --max-time 90 -X POST "$LOCAL_URL/api/ai" \
         -H 'content-type: application/json' \
         --data-binary @-
   printf '\n'
 }
 
 case "${1:-help}" in
+  start)
+    start
+    ;;
   health)
     health
     ;;
@@ -42,7 +59,7 @@ case "${1:-help}" in
     ;;
   scalping)
     symbol="${2:-XAUUSD}"
-    ask "IRENX SCALPING $symbol. Use the IRENX PRIME sequence REGIME -> LIQUIDITY -> REFLEXIVITY -> OROCHI -> VMAP -> EXECUTION -> RISK MANAGEMENT. Return Bias, Entry/Zone, SL, TP1, TP2, TP3, Trigger/Confirmation, and Status. Do not invent live prices; if live market data is unavailable, say so and return WAIT/NO TRADE."
+    ask "IRENX SCALPING $symbol. Use REGIME -> LIQUIDITY -> REFLEXIVITY -> OROCHI -> VMAP -> EXECUTION -> RISK MANAGEMENT. Return Bias, Entry/Zone, SL, TP1, TP2, TP3, Trigger/Confirmation, and Status. Do not invent live prices; if live market data is unavailable, say so and return WAIT/NO TRADE."
     ;;
   ask)
     [[ $# -ge 2 ]] || { echo 'Usage: ./termux/irenx ask "question"' >&2; exit 2; }
