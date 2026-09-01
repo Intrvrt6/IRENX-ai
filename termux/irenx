@@ -17,7 +17,7 @@ LOCAL_URL="${IRENX_LOCAL_URL:-http://127.0.0.1:${IRENX_PORT:-8787}}"
 
 usage() {
   cat <<'EOF'
-🔥 IRENX Termux — STANDALONE LOCAL MODE
+🔥 IRENX Termux — NO-API LOCAL MODE
 
 Usage:
   irenx start
@@ -28,17 +28,20 @@ Usage:
   irenx prime [XAUUSD]
   irenx ask "your question"
 
-Environment:
-  OPENAI_API_KEY=your-key
-  IRENX_OPENAI_MODEL=gpt-5.6
-  IRENX_PORT=8787
-  TWELVEDATA_API_KEY=your-twelve-data-key
-  IRENX_MARKET_INTERVAL=1min
-  IRENX_MARKET_OUTPUTSIZE=100
-  IRENX_MARKET_DATA_URL=optional custom JSON market-data endpoint
+NO API KEYS ARE REQUIRED.
+No OpenAI, Twelve Data, ai.irenx.com, Cloudflare, or WhatsApp deployment is required.
 
-Twelve Data is used as verified market evidence; it is not a standalone trade trigger.
-No ai.irenx.com deployment is required.
+Local market data:
+  ~/.irenx/market.json
+  or: IRENX_MARKET_FILE=/path/to/market.json
+
+Expected JSON:
+  {"symbol":"XAUUSD","candles":[{"time":"...","open":1,"high":2,"low":0.5,"close":1.5,"volume":100}]}
+
+IRENX PRIME sequence:
+  REGIME -> LIQUIDITY -> REFLEXIVITY -> OROCHI -> VMAP -> EXECUTION -> RISK MANAGEMENT
+
+If local market data is missing/insufficient, IRENX returns WAIT/NO TRADE.
 EOF
 }
 
@@ -48,41 +51,22 @@ start() {
     echo "Jalankan installer Termux dari repository." >&2
     exit 1
   fi
-  if [[ -z "${OPENAI_API_KEY:-}" ]]; then
-    echo "OPENAI_API_KEY belum diset." >&2
-    echo 'Set dengan: export OPENAI_API_KEY="..."' >&2
-    exit 1
-  fi
   exec node "$LOCAL_RUNTIME"
 }
 
-health() {
-  curl -sS --max-time 10 "$LOCAL_URL/api/health"
-  printf '\n'
-}
-
-market() {
-  local symbol="${1:-XAUUSD}"
-  curl -sS --max-time 15 "$LOCAL_URL/api/market?symbol=$(printf '%s' "$symbol" | tr '[:lower:]' '[:upper:]')"
-  printf '\n'
-}
-
-request_ai() {
-  local payload="$1"
+request() {
+  local endpoint="$1"
+  shift
   local body_file
   body_file="$(mktemp)"
-
   local status
-  status="$(curl -sS --max-time 90 -o "$body_file" -w '%{http_code}' -X POST "$LOCAL_URL/api/ai" \
-    -H 'content-type: application/json' \
-    --data-binary "$payload")" || {
-      local rc=$?
-      echo "IRENX local request failed (curl exit $rc)" >&2
-      if [[ -s "$body_file" ]]; then cat "$body_file" >&2; printf '\n' >&2; fi
-      rm -f "$body_file"
-      return "$rc"
-    }
-
+  status="$(curl -sS --max-time 20 -o "$body_file" -w '%{http_code}' "$endpoint" "$@")" || {
+    local rc=$?
+    echo "IRENX local request failed (curl exit $rc)" >&2
+    [[ -s "$body_file" ]] && cat "$body_file" >&2
+    rm -f "$body_file"
+    return "$rc"
+  }
   cat "$body_file"
   printf '\n'
   rm -f "$body_file"
@@ -92,29 +76,50 @@ request_ai() {
   fi
 }
 
+health() {
+  request "$LOCAL_URL/api/health"
+}
+
+market() {
+  local symbol="${1:-XAUUSD}"
+  request "$LOCAL_URL/api/market?symbol=$(printf '%s' "$symbol" | tr '[:lower:]' '[:upper:]')"
+}
+
 ask() {
   local prompt="$1"
   local payload
   payload="$(node -e 'process.stdout.write(JSON.stringify({prompt:process.argv[1]}))' "$prompt")"
-  request_ai "$payload"
+  request "$LOCAL_URL/api/ai" -X POST -H 'content-type: application/json' --data-binary "$payload"
+}
+
+ensure_server() {
+  if curl -fsS --max-time 2 "$LOCAL_URL/api/health" >/dev/null 2>&1; then return 0; fi
+  if [[ ! -f "$LOCAL_RUNTIME" ]]; then
+    echo "IRENX local runtime tidak ditemukan: $LOCAL_RUNTIME" >&2
+    exit 1
+  fi
+  nohup node "$LOCAL_RUNTIME" >"${IRENX_LOG_FILE:-$APP_DIR/irenx.log}" 2>&1 &
+  local pid=$!
+  for _ in $(seq 1 20); do
+    if curl -fsS --max-time 1 "$LOCAL_URL/api/health" >/dev/null 2>&1; then return 0; fi
+    sleep 0.25
+  done
+  echo "IRENX local server gagal start (PID $pid). Log: ${IRENX_LOG_FILE:-$APP_DIR/irenx.log}" >&2
+  return 1
 }
 
 case "${1:-help}" in
   start) start ;;
-  health) health ;;
-  market) market "${2:-XAUUSD}" ;;
-  signal)
-    symbol="${2:-XAUUSD}"
-    ask "IRENX SIGNAL $symbol. Analyze using REGIME -> LIQUIDITY -> REFLEXIVITY -> OROCHI -> VMAP -> EXECUTION -> RISK MANAGEMENT. Return Bias, Entry/Zone, SL, TP1, TP2, TP3, Trigger/Confirmation, and Status. Use verified market data only. If live data is unavailable, return WAIT/NO TRADE and do not fabricate numeric levels." ;;
-  scalping)
-    symbol="${2:-XAUUSD}"
-    ask "IRENX SCALPING $symbol. Use REGIME -> LIQUIDITY -> REFLEXIVITY -> OROCHI -> VMAP -> EXECUTION -> RISK MANAGEMENT. Be highly selective. Return Bias, Entry/Zone, SL, TP1, TP2, TP3, Trigger/Confirmation, and Status. Use verified market data only. If live data is unavailable, return WAIT/NO TRADE and do not fabricate numeric levels." ;;
-  prime)
-    symbol="${2:-XAUUSD}"
-    ask "IRENX PRIME $symbol. Apply the complete sequence REGIME -> LIQUIDITY -> REFLEXIVITY -> OROCHI -> VMAP -> EXECUTION -> RISK MANAGEMENT. VMAP is confirmation only. No indicator alone may trigger a trade. Return Bias, Entry/Zone, SL, TP1, TP2, TP3, Trigger/Confirmation, and Status. If reliable live market data is unavailable, return WAIT/NO TRADE and do not fabricate numeric levels." ;;
+  health) ensure_server; health ;;
+  market) ensure_server; market "${2:-XAUUSD}" ;;
+  signal) ensure_server; ask "IRENX SIGNAL ${2:-XAUUSD}" ;;
+  scalping) ensure_server; ask "IRENX SCALPING ${2:-XAUUSD}" ;;
+  prime) ensure_server; ask "IRENX PRIME ${2:-XAUUSD}" ;;
   ask)
     [[ $# -ge 2 ]] || { echo 'Usage: irenx ask "question"' >&2; exit 2; }
-    ask "$2" ;;
+    ensure_server
+    ask "$2"
+    ;;
   help|-h|--help) usage ;;
   *) echo "Unknown command: $1" >&2; usage >&2; exit 2 ;;
 esac
