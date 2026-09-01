@@ -6,12 +6,13 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "deploy:whatsapp": "wrangler deploy -c wrangler.whatsapp.toml",
     "typecheck": "tsc --noEmit",
     "cf:types": "wrangler types"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "latest",
-    "typescript": "latest",
+    "typescript": "5.9.3",
     "wrangler": "latest"
   },
   "dependencies": {
