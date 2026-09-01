@@ -52,17 +52,40 @@ start() {
 }
 
 health() {
-  curl -fsS --max-time 10 "$LOCAL_URL/api/health"
+  curl -sS --max-time 10 "$LOCAL_URL/api/health"
   printf '\n'
+}
+
+request_ai() {
+  local payload="$1"
+  local body_file
+  body_file="$(mktemp)"
+
+  local status
+  status="$(curl -sS --max-time 90 -o "$body_file" -w '%{http_code}' -X POST "$LOCAL_URL/api/ai" \
+    -H 'content-type: application/json' \
+    --data-binary "$payload")" || {
+      local rc=$?
+      echo "IRENX local request failed (curl exit $rc)" >&2
+      if [[ -s "$body_file" ]]; then cat "$body_file" >&2; printf '\n' >&2; fi
+      rm -f "$body_file"
+      return "$rc"
+    }
+
+  cat "$body_file"
+  printf '\n'
+  rm -f "$body_file"
+  if [[ "$status" -lt 200 || "$status" -ge 300 ]]; then
+    echo "IRENX local HTTP $status" >&2
+    return 1
+  fi
 }
 
 ask() {
   local prompt="$1"
-  node -e 'process.stdout.write(JSON.stringify({prompt:process.argv[1]}))' "$prompt" \
-    | curl -fsS --max-time 90 -X POST "$LOCAL_URL/api/ai" \
-        -H 'content-type: application/json' \
-        --data-binary @-
-  printf '\n'
+  local payload
+  payload="$(node -e 'process.stdout.write(JSON.stringify({prompt:process.argv[1]}))' "$prompt")"
+  request_ai "$payload"
 }
 
 case "${1:-help}" in
