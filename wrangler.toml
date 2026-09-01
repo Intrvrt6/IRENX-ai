@@ -1,5 +1,5 @@
 name = "irenx-ai"
-main = "worker/index.ts"
+main = "worker/entry.ts"
 compatibility_date = "2026-07-28"
 
 [vars]
