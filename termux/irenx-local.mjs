@@ -6,6 +6,8 @@ const HOST = process.env.IRENX_HOST || "127.0.0.1";
 const API_KEY = process.env.OPENAI_API_KEY || "";
 const MODEL = process.env.IRENX_OPENAI_MODEL || "gpt-5.6";
 const MARKET_DATA_URL = process.env.IRENX_MARKET_DATA_URL || "";
+const TWELVEDATA_API_KEY = process.env.TWELVEDATA_API_KEY || "";
+const TWELVEDATA_BASE_URL = "https://api.twelvedata.com";
 const REQUEST_TIMEOUT_MS = Number(process.env.IRENX_AI_TIMEOUT_MS || 45000);
 const MAX_BODY_BYTES = 1024 * 1024;
 const FAILURE_THRESHOLD = Number(process.env.IRENX_CB_FAILURE_THRESHOLD || 3);
@@ -58,26 +60,52 @@ function classify(prompt) {
   return "general";
 }
 
+function extractSymbol(prompt) {
+  const match = prompt.match(/\b(XAUUSD|XAGUSD|EURUSD|GBPUSD|USDJPY|AUDUSD|USDCAD|USDCHF|NAS100|NDX)\b/i);
+  return match?.[1]?.toUpperCase() || "XAUUSD";
+}
+
+function twelveDataSymbol(symbol) {
+  const map = { XAUUSD: "XAU/USD", XAGUSD: "XAG/USD", EURUSD: "EUR/USD", GBPUSD: "GBP/USD", USDJPY: "USD/JPY", AUDUSD: "AUD/USD", USDCAD: "USD/CAD", USDCHF: "USD/CHF", NAS100: "NDX" };
+  return map[symbol] || symbol;
+}
+
 async function fetchMarketData(symbol) {
-  if (!MARKET_DATA_URL) return null;
-  const url = new URL(MARKET_DATA_URL);
-  url.searchParams.set("symbol", symbol);
+  if (MARKET_DATA_URL) {
+    const url = new URL(MARKET_DATA_URL);
+    url.searchParams.set("symbol", symbol);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(url, { signal: controller.signal, headers: { accept: "application/json" } });
+      if (!response.ok) throw new Error(`Market data HTTP ${response.status}`);
+      const data = await response.json();
+      if (!data || typeof data !== "object") throw new Error("Market data response is not an object");
+      return { provider: "configured-endpoint", symbol, data };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  if (!TWELVEDATA_API_KEY) return null;
+  const tdSymbol = twelveDataSymbol(symbol);
+  const url = new URL(`${TWELVEDATA_BASE_URL}/time_series`);
+  url.searchParams.set("symbol", tdSymbol);
+  url.searchParams.set("interval", process.env.IRENX_MARKET_INTERVAL || "1min");
+  url.searchParams.set("outputsize", process.env.IRENX_MARKET_OUTPUTSIZE || "100");
+  url.searchParams.set("apikey", TWELVEDATA_API_KEY);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10000);
   try {
     const response = await fetch(url, { signal: controller.signal, headers: { accept: "application/json" } });
-    if (!response.ok) throw new Error(`Market data HTTP ${response.status}`);
-    const data = await response.json();
-    if (!data || typeof data !== "object") throw new Error("Market data response is not an object");
-    return data;
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(`Twelve Data HTTP ${response.status}`);
+    if (!data || data.status === "error" || data.code) throw new Error(data?.message || "Twelve Data provider error");
+    if (!Array.isArray(data.values) || data.values.length === 0) throw new Error("Twelve Data returned no candles");
+    return { provider: "twelvedata", symbol, providerSymbol: tdSymbol, interval: data.meta?.interval || process.env.IRENX_MARKET_INTERVAL || "1min", timezone: data.meta?.timezone || null, values: data.values };
   } finally {
     clearTimeout(timer);
   }
-}
-
-function extractSymbol(prompt) {
-  const match = prompt.match(/\b(XAUUSD|XAGUSD|EURUSD|GBPUSD|USDJPY|AUDUSD|USDCAD|USDCHF|[A-Z]{3,12})\b/i);
-  return match?.[1]?.toUpperCase() || "XAUUSD";
 }
 
 function responseText(payload) {
@@ -99,10 +127,10 @@ async function ai(prompt) {
   const symbol = extractSymbol(prompt);
   let marketData = null;
   let marketDataStatus = "LIVE MARKET DATA UNAVAILABLE";
-  if (MARKET_DATA_URL) {
+  if (MARKET_DATA_URL || TWELVEDATA_API_KEY) {
     try {
       marketData = await fetchMarketData(symbol);
-      marketDataStatus = "VERIFIED MARKET DATA PROVIDED BY CONFIGURED ENDPOINT";
+      marketDataStatus = marketData?.provider === "twelvedata" ? "VERIFIED LIVE MARKET DATA PROVIDED BY TWELVE DATA" : "VERIFIED MARKET DATA PROVIDED BY CONFIGURED ENDPOINT";
     } catch (error) {
       marketDataStatus = `LIVE MARKET DATA UNAVAILABLE (${error instanceof Error ? error.message : "fetch failed"})`;
     }
@@ -117,17 +145,8 @@ async function ai(prompt) {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       signal: controller.signal,
-      headers: {
-        authorization: `Bearer ${API_KEY}`,
-        "content-type": "application/json",
-        accept: "application/json",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        input,
-        max_output_tokens: MAX_OUTPUT_TOKENS,
-        store: false,
-      }),
+      headers: { authorization: `Bearer ${API_KEY}`, "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ model: MODEL, input, max_output_tokens: MAX_OUTPUT_TOKENS, store: false }),
     });
 
     const raw = await response.text();
@@ -159,10 +178,9 @@ async function ai(prompt) {
       local: true,
       task: classify(prompt),
       marketData: marketDataStatus,
-      irenx: {
-        sequence: ["REGIME", "LIQUIDITY", "REFLEXIVITY", "OROCHI", "VMAP", "EXECUTION", "RISK MANAGEMENT"],
-        status: "READY",
-      },
+      marketProvider: marketData?.provider || null,
+      symbol,
+      irenx: { sequence: ["REGIME", "LIQUIDITY", "REFLEXIVITY", "OROCHI", "VMAP", "EXECUTION", "RISK MANAGEMENT"], status: "READY" },
     };
   } finally {
     clearTimeout(timer);
@@ -182,19 +200,30 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     if (req.method === "OPTIONS") return json(res, 204, {});
-    if (url.pathname === "/" || url.pathname === "/api") return json(res, 200, { service: "IRENX Local", mode: "termux", model: MODEL, standalone: true, endpoints: ["/api/health", "/api/ai"] });
+    if (url.pathname === "/" || url.pathname === "/api") return json(res, 200, { service: "IRENX Local", mode: "termux", model: MODEL, standalone: true, endpoints: ["/api/health", "/api/ai", "/api/market"] });
     if (url.pathname === "/api/health" && req.method === "GET") return json(res, 200, {
       ok: true,
       service: "irenx-local",
       mode: "termux",
       standalone: true,
       aiConfigured: Boolean(API_KEY),
-      marketDataConfigured: Boolean(MARKET_DATA_URL),
+      marketDataConfigured: Boolean(MARKET_DATA_URL || TWELVEDATA_API_KEY),
+      marketProvider: TWELVEDATA_API_KEY ? "twelvedata" : (MARKET_DATA_URL ? "configured-endpoint" : null),
       model: MODEL,
       circuit: circuitOpen() ? "OPEN" : "CLOSED",
       totals: { requests: totalRequests, tokens: totalTokens },
       time: new Date().toISOString(),
     });
+    if (url.pathname === "/api/market" && req.method === "GET") {
+      const symbol = (url.searchParams.get("symbol") || "XAUUSD").toUpperCase();
+      try {
+        const data = await fetchMarketData(symbol);
+        if (!data) return json(res, 503, { error: "market data unavailable", marketDataConfigured: false });
+        return json(res, 200, data);
+      } catch (error) {
+        return json(res, 503, { error: error instanceof Error ? error.message : "market data unavailable", marketDataConfigured: true });
+      }
+    }
     if (url.pathname === "/api/ai" && req.method === "POST") {
       const body = JSON.parse(await readBody(req) || "{}");
       const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
