@@ -22,31 +22,30 @@ chmod +x "$BIN_DIR/irenx"
 
 cat <<'EOF'
 
-🔥 IRENX TERMUX — STANDALONE
+🔥 IRENX TERMUX — NO-API LOCAL MODE
 
 Installed successfully.
 
 Commands:
   irenx help
-  irenx start
   irenx health
   irenx market XAUUSD
   irenx signal XAUUSD
   irenx scalping XAUUSD
   irenx prime XAUUSD
-  irenx ask "question"
+  irenx ask "IRENX TEST"
 
-Required:
-  export OPENAI_API_KEY='YOUR_OPENAI_KEY'
+NO API KEY IS REQUIRED.
 
-For live market data:
-  export TWELVEDATA_API_KEY='YOUR_TWELVE_DATA_KEY'
+Local market data:
+  ~/.irenx/market.json
+  export IRENX_MARKET_FILE=/path/to/market.json
 
-Optional:
-  export IRENX_OPENAI_MODEL='gpt-5.6'
-  export IRENX_MARKET_INTERVAL='1min'
-  export IRENX_MARKET_OUTPUTSIZE='100'
-  export IRENX_PORT=8787
+The engine is deterministic and local. It does not call OpenAI or Twelve Data.
+If local OHLC data is unavailable, IRENX returns WAIT/NO TRADE instead of fabricating prices.
 
-No Cloudflare/WhatsApp deployment is required.
+PRIME sequence:
+  REGIME -> LIQUIDITY -> REFLEXIVITY -> OROCHI -> VMAP -> EXECUTION -> RISK MANAGEMENT
+
+No Cloudflare/WhatsApp deployment is required for this Termux mode.
 EOF
