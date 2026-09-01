@@ -6,8 +6,10 @@ PREFIX_DIR="${PREFIX:-/data/data/com.termux/files/usr}"
 BIN_DIR="$PREFIX_DIR/bin"
 APP_DIR="$PREFIX_DIR/opt/irenx"
 
-mkdir -p "$BIN_DIR" "$APP_DIR"
+command -v node >/dev/null 2>&1 || { echo "Node.js belum terpasang. Jalankan: pkg install nodejs-lts -y" >&2; exit 1; }
+command -v curl >/dev/null 2>&1 || { echo "curl belum terpasang. Jalankan: pkg install curl -y" >&2; exit 1; }
 
+mkdir -p "$BIN_DIR" "$APP_DIR"
 cp "$ROOT/termux/irenx" "$APP_DIR/irenx"
 cp "$ROOT/termux/irenx-local.mjs" "$APP_DIR/irenx-local.mjs"
 chmod +x "$APP_DIR/irenx" "$APP_DIR/irenx-local.mjs"
@@ -18,30 +20,33 @@ exec "$APP_DIR/irenx" "\$@"
 EOF
 chmod +x "$BIN_DIR/irenx"
 
-cat <<EOF
-IRENX Termux standalone deployment installed.
+cat <<'EOF'
 
-Runtime:
-  $APP_DIR
-Command:
-  $BIN_DIR/irenx
+🔥 IRENX TERMUX — STANDALONE
+
+Installed successfully.
 
 Commands:
   irenx help
   irenx start
   irenx health
+  irenx market XAUUSD
   irenx signal XAUUSD
   irenx scalping XAUUSD
   irenx prime XAUUSD
   irenx ask "question"
 
-Required before starting:
-  export OPENAI_API_KEY="YOUR_KEY"
+Required:
+  export OPENAI_API_KEY='YOUR_OPENAI_KEY'
+
+For live market data:
+  export TWELVEDATA_API_KEY='YOUR_TWELVE_DATA_KEY'
 
 Optional:
-  export IRENX_OPENAI_MODEL="gpt-5.6"
+  export IRENX_OPENAI_MODEL='gpt-5.6'
+  export IRENX_MARKET_INTERVAL='1min'
+  export IRENX_MARKET_OUTPUTSIZE='100'
   export IRENX_PORT=8787
-  export IRENX_MARKET_DATA_URL="https://..."
 
-This Termux runtime is independent from Cloudflare deployment and does not require ai.irenx.com.
+No Cloudflare/WhatsApp deployment is required.
 EOF
