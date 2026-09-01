@@ -141,9 +141,8 @@ export async function handleWhatsApp(
   ctx: ExecutionContext,
   irenxFetch: (request: Request, env: any, ctx: ExecutionContext) => Promise<Response>,
 ) {
-  const url = new URL(request.url);
-
   if (request.method === "GET") {
+    const url = new URL(request.url);
     const mode = url.searchParams.get("hub.mode");
     const token = url.searchParams.get("hub.verify_token");
     const challenge = url.searchParams.get("hub.challenge");
