@@ -22,6 +22,7 @@ usage() {
 Usage:
   irenx start
   irenx health
+  irenx market [XAUUSD]
   irenx signal [XAUUSD]
   irenx scalping [XAUUSD]
   irenx prime [XAUUSD]
@@ -31,8 +32,12 @@ Environment:
   OPENAI_API_KEY=your-key
   IRENX_OPENAI_MODEL=gpt-5.6
   IRENX_PORT=8787
-  IRENX_MARKET_DATA_URL=optional JSON market-data endpoint
+  TWELVEDATA_API_KEY=your-twelve-data-key
+  IRENX_MARKET_INTERVAL=1min
+  IRENX_MARKET_OUTPUTSIZE=100
+  IRENX_MARKET_DATA_URL=optional custom JSON market-data endpoint
 
+Twelve Data is used as verified market evidence; it is not a standalone trade trigger.
 No ai.irenx.com deployment is required.
 EOF
 }
@@ -53,6 +58,12 @@ start() {
 
 health() {
   curl -sS --max-time 10 "$LOCAL_URL/api/health"
+  printf '\n'
+}
+
+market() {
+  local symbol="${1:-XAUUSD}"
+  curl -sS --max-time 15 "$LOCAL_URL/api/market?symbol=$(printf '%s' "$symbol" | tr '[:lower:]' '[:upper:]')"
   printf '\n'
 }
 
@@ -91,6 +102,7 @@ ask() {
 case "${1:-help}" in
   start) start ;;
   health) health ;;
+  market) market "${2:-XAUUSD}" ;;
   signal)
     symbol="${2:-XAUUSD}"
     ask "IRENX SIGNAL $symbol. Analyze using REGIME -> LIQUIDITY -> REFLEXIVITY -> OROCHI -> VMAP -> EXECUTION -> RISK MANAGEMENT. Return Bias, Entry/Zone, SL, TP1, TP2, TP3, Trigger/Confirmation, and Status. Use verified market data only. If live data is unavailable, return WAIT/NO TRADE and do not fabricate numeric levels." ;;
