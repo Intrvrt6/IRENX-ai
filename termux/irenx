@@ -5,21 +5,17 @@ BASE_URL="${IRENX_URL:-https://ai.irenx.com}"
 
 usage() {
   cat <<'EOF'
-IRENX Termux CLI
+🔥 IRENX Termux CLI
 
 Usage:
   ./termux/irenx health
-  ./termux/irenx signal XAUUSD
-  ./termux/irenx scalping XAUUSD
+  ./termux/irenx signal [XAUUSD]
+  ./termux/irenx scalping [XAUUSD]
   ./termux/irenx ask "your question"
 
 Environment:
   IRENX_URL=https://ai.irenx.com
 EOF
-}
-
-urlencode() {
-  node -e 'console.log(encodeURIComponent(process.argv[1]))' "$1"
 }
 
 health() {
@@ -29,14 +25,14 @@ health() {
 
 ask() {
   local prompt="$1"
-  local encoded
-  encoded="$(urlencode "$prompt")"
-  curl -fsS --max-time 60 "$BASE_URL/api/ai?prompt=$encoded"
+  node -e 'process.stdout.write(JSON.stringify({prompt:process.argv[1]}))' "$prompt" \
+    | curl -fsS --max-time 60 -X POST "$BASE_URL/api/ai" \
+        -H 'content-type: application/json' \
+        --data-binary @-
   printf '\n'
 }
 
-command_name="${1:-help}"
-case "$command_name" in
+case "${1:-help}" in
   health)
     health
     ;;
@@ -49,14 +45,14 @@ case "$command_name" in
     ask "IRENX SCALPING $symbol. Use the IRENX PRIME sequence REGIME -> LIQUIDITY -> REFLEXIVITY -> OROCHI -> VMAP -> EXECUTION -> RISK MANAGEMENT. Return Bias, Entry/Zone, SL, TP1, TP2, TP3, Trigger/Confirmation, and Status. Do not invent live prices; if live market data is unavailable, say so and return WAIT/NO TRADE."
     ;;
   ask)
-    [[ $# -ge 2 ]] || { echo "Usage: ./termux/irenx ask \"question\"" >&2; exit 2; }
+    [[ $# -ge 2 ]] || { echo 'Usage: ./termux/irenx ask "question"' >&2; exit 2; }
     ask "$2"
     ;;
   help|-h|--help)
     usage
     ;;
   *)
-    echo "Unknown command: $command_name" >&2
+    echo "Unknown command: $1" >&2
     usage >&2
     exit 2
     ;;
