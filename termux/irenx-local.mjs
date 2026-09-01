@@ -12,6 +12,7 @@ const FAILURE_THRESHOLD = Number(process.env.IRENX_CB_FAILURE_THRESHOLD || 3);
 const COOLDOWN_MS = Number(process.env.IRENX_CB_COOLDOWN_MS || 30000);
 const MAX_REQUESTS = Number(process.env.IRENX_AI_MAX_REQUESTS || 100);
 const MAX_TOKENS = Number(process.env.IRENX_AI_MAX_TOKENS || 200000);
+const MAX_OUTPUT_TOKENS = Number(process.env.IRENX_MAX_OUTPUT_TOKENS || 4096);
 
 const SYSTEM = `You are IRENX, the user's trading analysis engine.
 Use the mandatory sequence: REGIME -> LIQUIDITY -> REFLEXIVITY -> OROCHI -> VMAP -> EXECUTION -> RISK MANAGEMENT.
@@ -75,8 +76,19 @@ async function fetchMarketData(symbol) {
 }
 
 function extractSymbol(prompt) {
-  const match = prompt.match(/\b([A-Z]{3,12}(?:USD|USDT|EUR|JPY)?)\b/i);
+  const match = prompt.match(/\b(XAUUSD|XAGUSD|EURUSD|GBPUSD|USDJPY|AUDUSD|USDCAD|USDCHF|[A-Z]{3,12})\b/i);
   return match?.[1]?.toUpperCase() || "XAUUSD";
+}
+
+function responseText(payload) {
+  if (typeof payload?.output_text === "string" && payload.output_text.trim()) return payload.output_text.trim();
+  const chunks = [];
+  for (const item of payload?.output || []) {
+    for (const content of item?.content || []) {
+      if (typeof content?.text === "string") chunks.push(content.text);
+    }
+  }
+  return chunks.join("\n").trim();
 }
 
 async function ai(prompt) {
@@ -96,34 +108,62 @@ async function ai(prompt) {
     }
   }
 
-  const enrichedPrompt = `${SYSTEM}\n\nMarket-data status: ${marketDataStatus}\n${marketData ? `Verified market data JSON:\n${JSON.stringify(marketData)}` : "No verified market data was supplied."}\n\nUser: ${prompt}`;
+  const input = `${SYSTEM}\n\nMarket-data status: ${marketDataStatus}\n${marketData ? `Verified market data JSON:\n${JSON.stringify(marketData)}` : "No verified market data was supplied."}\n\nUser: ${prompt}`;
   totalRequests++;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       signal: controller.signal,
-      headers: { authorization: `Bearer ${API_KEY}`, "content-type": "application/json", accept: "application/json" },
+      headers: {
+        authorization: `Bearer ${API_KEY}`,
+        "content-type": "application/json",
+        accept: "application/json",
+      },
       body: JSON.stringify({
         model: MODEL,
-        tools: [{ type: "web_search", search_context_size: "medium" }],
-        input: enrichedPrompt,
+        input,
+        max_output_tokens: MAX_OUTPUT_TOKENS,
+        store: false,
       }),
     });
-    const payload = await response.json().catch(() => ({}));
+
+    const raw = await response.text();
+    let payload = {};
+    try { payload = raw ? JSON.parse(raw) : {}; } catch { payload = { raw }; }
+
     if (!response.ok) {
       consecutiveFailures++;
       if (consecutiveFailures >= FAILURE_THRESHOLD) circuitOpenedAt = Date.now();
-      throw new Error(payload?.error?.message || `OpenAI HTTP ${response.status}`);
+      const upstream = payload?.error || {};
+      const detail = upstream?.message || payload?.message || `OpenAI HTTP ${response.status}`;
+      const error = new Error(`${detail} [HTTP ${response.status}${upstream?.code ? `; code=${upstream.code}` : ""}]`);
+      error.status = response.status;
+      throw error;
     }
+
     consecutiveFailures = 0;
     circuitOpenedAt = 0;
     const usage = payload?.usage || {};
     totalTokens += Number(usage.input_tokens || 0) + Number(usage.output_tokens || 0);
     if (totalTokens > MAX_TOKENS) throw new Error("IRENX quota guard: token limit reached");
-    const output = payload.output_text || payload.output?.flatMap(x => x.content || []).map(x => x.text || "").join("") || "";
-    return { output_text: output, model: MODEL, local: true, task: classify(prompt), marketData: marketDataStatus, irenx: { sequence: ["REGIME", "LIQUIDITY", "REFLEXIVITY", "OROCHI", "VMAP", "EXECUTION", "RISK MANAGEMENT"], status: output ? "READY" : "NO TRADE" } };
+
+    const output = responseText(payload);
+    if (!output) throw new Error(`OpenAI returned no text output (response_id=${payload?.id || "unknown"})`);
+
+    return {
+      output_text: output,
+      model: MODEL,
+      local: true,
+      task: classify(prompt),
+      marketData: marketDataStatus,
+      irenx: {
+        sequence: ["REGIME", "LIQUIDITY", "REFLEXIVITY", "OROCHI", "VMAP", "EXECUTION", "RISK MANAGEMENT"],
+        status: "READY",
+      },
+    };
   } finally {
     clearTimeout(timer);
   }
@@ -143,7 +183,18 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     if (req.method === "OPTIONS") return json(res, 204, {});
     if (url.pathname === "/" || url.pathname === "/api") return json(res, 200, { service: "IRENX Local", mode: "termux", model: MODEL, standalone: true, endpoints: ["/api/health", "/api/ai"] });
-    if (url.pathname === "/api/health" && req.method === "GET") return json(res, 200, { ok: true, service: "irenx-local", mode: "termux", standalone: true, aiConfigured: Boolean(API_KEY), marketDataConfigured: Boolean(MARKET_DATA_URL), model: MODEL, circuit: circuitOpen() ? "OPEN" : "CLOSED", totals: { requests: totalRequests, tokens: totalTokens }, time: new Date().toISOString() });
+    if (url.pathname === "/api/health" && req.method === "GET") return json(res, 200, {
+      ok: true,
+      service: "irenx-local",
+      mode: "termux",
+      standalone: true,
+      aiConfigured: Boolean(API_KEY),
+      marketDataConfigured: Boolean(MARKET_DATA_URL),
+      model: MODEL,
+      circuit: circuitOpen() ? "OPEN" : "CLOSED",
+      totals: { requests: totalRequests, tokens: totalTokens },
+      time: new Date().toISOString(),
+    });
     if (url.pathname === "/api/ai" && req.method === "POST") {
       const body = JSON.parse(await readBody(req) || "{}");
       const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
@@ -158,8 +209,8 @@ const server = http.createServer(async (req, res) => {
     return json(res, 404, { error: "Not found" });
   } catch (error) {
     const message = error instanceof Error ? error.message : "IRENX local failure";
-    const status = /JSON|body too large|prompt is required/.test(message) ? 400 : 502;
-    return json(res, status, { error: message });
+    const status = Number(error?.status) || (/JSON|body too large|prompt is required/.test(message) ? 400 : 502);
+    return json(res, status, { error: message, service: "irenx-local", model: MODEL });
   }
 });
 
