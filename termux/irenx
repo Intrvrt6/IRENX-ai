@@ -1,6 +1,17 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
+SCRIPT_PATH="$0"
+if command -v readlink >/dev/null 2>&1; then
+  RESOLVED_PATH="$(readlink -f "$SCRIPT_PATH" 2>/dev/null || true)"
+else
+  RESOLVED_PATH=""
+fi
+if [[ -n "$RESOLVED_PATH" && -f "$RESOLVED_PATH" ]]; then
+  SCRIPT_PATH="$RESOLVED_PATH"
+fi
+
+ROOT="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
 LOCAL_URL="${IRENX_LOCAL_URL:-http://127.0.0.1:8787}"
 
 usage() {
@@ -8,11 +19,11 @@ usage() {
 🔥 IRENX Termux — LOCAL MODE
 
 Usage:
-  ./termux/irenx start
-  ./termux/irenx health
-  ./termux/irenx signal [XAUUSD]
-  ./termux/irenx scalping [XAUUSD]
-  ./termux/irenx ask "your question"
+  irenx start
+  irenx health
+  irenx signal [XAUUSD]
+  irenx scalping [XAUUSD]
+  irenx ask "your question"
 
 Environment:
   OPENAI_API_KEY=your-key
@@ -29,7 +40,7 @@ start() {
     echo 'Set dengan: export OPENAI_API_KEY="..."' >&2
     exit 1
   fi
-  exec node "$(cd "$(dirname "$0")" && pwd)/irenx-local.mjs"
+  exec node "$ROOT/termux/irenx-local.mjs"
 }
 
 health() {
@@ -62,7 +73,7 @@ case "${1:-help}" in
     ask "IRENX SCALPING $symbol. Use REGIME -> LIQUIDITY -> REFLEXIVITY -> OROCHI -> VMAP -> EXECUTION -> RISK MANAGEMENT. Return Bias, Entry/Zone, SL, TP1, TP2, TP3, Trigger/Confirmation, and Status. Do not invent live prices; if live market data is unavailable, say so and return WAIT/NO TRADE."
     ;;
   ask)
-    [[ $# -ge 2 ]] || { echo 'Usage: ./termux/irenx ask "question"' >&2; exit 2; }
+    [[ $# -ge 2 ]] || { echo 'Usage: irenx ask "question"' >&2; exit 2; }
     ask "$2"
     ;;
   help|-h|--help)
