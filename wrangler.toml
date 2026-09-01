@@ -1,7 +1,5 @@
-WHATSAPP_VERIFY_TOKEN
-WHATSAPP_ACCESS_TOKEN
-WHATSAPP_PHONE_NUMBER_ID
-WHATSAPP_APP_SECRET
+name = "irenx-ai"
+main = "worker/entry.ts"
 compatibility_date = "2026-07-28"
 
 [vars]
