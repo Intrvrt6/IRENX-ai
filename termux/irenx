@@ -11,7 +11,8 @@ if [[ -n "$RESOLVED_PATH" && -f "$RESOLVED_PATH" ]]; then
   SCRIPT_PATH="$RESOLVED_PATH"
 fi
 
-ROOT="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
+APP_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+LOCAL_RUNTIME="$APP_DIR/irenx-local.mjs"
 LOCAL_URL="${IRENX_LOCAL_URL:-http://127.0.0.1:${IRENX_PORT:-8787}}"
 
 usage() {
@@ -37,9 +38,9 @@ EOF
 }
 
 start() {
-  local runtime="$ROOT/termux/irenx-local.mjs"
-  if [[ ! -f "$runtime" ]]; then
-    echo "IRENX local runtime tidak ditemukan: $runtime" >&2
+  if [[ ! -f "$LOCAL_RUNTIME" ]]; then
+    echo "IRENX local runtime tidak ditemukan: $LOCAL_RUNTIME" >&2
+    echo "Jalankan installer Termux dari repository." >&2
     exit 1
   fi
   if [[ -z "${OPENAI_API_KEY:-}" ]]; then
@@ -47,7 +48,7 @@ start() {
     echo 'Set dengan: export OPENAI_API_KEY="..."' >&2
     exit 1
   fi
-  exec node "$runtime"
+  exec node "$LOCAL_RUNTIME"
 }
 
 health() {
