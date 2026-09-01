@@ -1,125 +1,49 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-SCRIPT_PATH="$0"
-if command -v readlink >/dev/null 2>&1; then
-  RESOLVED_PATH="$(readlink -f "$SCRIPT_PATH" 2>/dev/null || true)"
-else
-  RESOLVED_PATH=""
-fi
-if [[ -n "$RESOLVED_PATH" && -f "$RESOLVED_PATH" ]]; then
-  SCRIPT_PATH="$RESOLVED_PATH"
-fi
+APP_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")")" && pwd)"
+RUNTIME="$APP_DIR/irenx-local.mjs"
+PORT="${IRENX_PORT:-8787}"
+URL="${IRENX_LOCAL_URL:-http://127.0.0.1:${PORT}}"
+PIDFILE="${IRENX_HOME:-$HOME/.irenx}/irenx.pid"
 
-APP_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
-LOCAL_RUNTIME="$APP_DIR/irenx-local.mjs"
-LOCAL_URL="${IRENX_LOCAL_URL:-http://127.0.0.1:${IRENX_PORT:-8787}}"
+usage(){ cat <<'EOF'
+🔥 IRENX TERMUX NO-API
 
-usage() {
-  cat <<'EOF'
-🔥 IRENX Termux — NO-API LOCAL MODE
-
-Usage:
+Commands:
   irenx start
+  irenx stop
+  irenx restart
+  irenx status
   irenx health
-  irenx market [XAUUSD]
-  irenx signal [XAUUSD]
-  irenx scalping [XAUUSD]
-  irenx prime [XAUUSD]
-  irenx ask "your question"
+  irenx market [SYMBOL]
+  irenx signal [SYMBOL]
+  irenx scalping [SYMBOL]
+  irenx prime [SYMBOL]
+  irenx ask "IRENX TEST"
 
-NO API KEYS ARE REQUIRED.
-No OpenAI, Twelve Data, ai.irenx.com, Cloudflare, or WhatsApp deployment is required.
-
-Local market data:
-  ~/.irenx/market.json
-  or: IRENX_MARKET_FILE=/path/to/market.json
-
-Expected JSON:
-  {"symbol":"XAUUSD","candles":[{"time":"...","open":1,"high":2,"low":0.5,"close":1.5,"volume":100}]}
-
-IRENX PRIME sequence:
-  REGIME -> LIQUIDITY -> REFLEXIVITY -> OROCHI -> VMAP -> EXECUTION -> RISK MANAGEMENT
-
-If local market data is missing/insufficient, IRENX returns WAIT/NO TRADE.
+No OpenAI API, Twelve Data API, Cloudflare, or WhatsApp is required.
+Local OHLC data: ~/.irenx/market.json
 EOF
 }
 
-start() {
-  if [[ ! -f "$LOCAL_RUNTIME" ]]; then
-    echo "IRENX local runtime tidak ditemukan: $LOCAL_RUNTIME" >&2
-    echo "Jalankan installer Termux dari repository." >&2
-    exit 1
-  fi
-  exec node "$LOCAL_RUNTIME"
+running(){ curl -sS --max-time 2 "$URL/api/health" >/dev/null 2>&1; }
+start(){
+  [[ -f "$RUNTIME" ]] || { echo "Runtime tidak ditemukan: $RUNTIME" >&2; exit 1; }
+  if running; then echo "IRENX sudah berjalan: $URL"; return; fi
+  mkdir -p "$(dirname "$PIDFILE")"
+  nohup node "$RUNTIME" >"${IRENX_LOG_FILE:-${IRENX_HOME:-$HOME/.irenx}/irenx.log}" 2>&1 &
+  echo $! > "$PIDFILE"
+  for _ in $(seq 1 20); do if running; then echo "IRENX ONLINE: $URL"; return; fi; sleep 0.25; done
+  echo "IRENX gagal start. Log:" >&2
+  tail -n 40 "${IRENX_LOG_FILE:-${IRENX_HOME:-$HOME/.irenx}/irenx.log}" >&2 || true
+  exit 1
 }
-
-request() {
-  local endpoint="$1"
-  shift
-  local body_file
-  body_file="$(mktemp)"
-  local status
-  status="$(curl -sS --max-time 20 -o "$body_file" -w '%{http_code}' "$endpoint" "$@")" || {
-    local rc=$?
-    echo "IRENX local request failed (curl exit $rc)" >&2
-    [[ -s "$body_file" ]] && cat "$body_file" >&2
-    rm -f "$body_file"
-    return "$rc"
-  }
-  cat "$body_file"
-  printf '\n'
-  rm -f "$body_file"
-  if [[ "$status" -lt 200 || "$status" -ge 300 ]]; then
-    echo "IRENX local HTTP $status" >&2
-    return 1
-  fi
-}
-
-health() {
-  request "$LOCAL_URL/api/health"
-}
-
-market() {
-  local symbol="${1:-XAUUSD}"
-  request "$LOCAL_URL/api/market?symbol=$(printf '%s' "$symbol" | tr '[:lower:]' '[:upper:]')"
-}
-
-ask() {
-  local prompt="$1"
-  local payload
-  payload="$(node -e 'process.stdout.write(JSON.stringify({prompt:process.argv[1]}))' "$prompt")"
-  request "$LOCAL_URL/api/ai" -X POST -H 'content-type: application/json' --data-binary "$payload"
-}
-
-ensure_server() {
-  if curl -fsS --max-time 2 "$LOCAL_URL/api/health" >/dev/null 2>&1; then return 0; fi
-  if [[ ! -f "$LOCAL_RUNTIME" ]]; then
-    echo "IRENX local runtime tidak ditemukan: $LOCAL_RUNTIME" >&2
-    exit 1
-  fi
-  nohup node "$LOCAL_RUNTIME" >"${IRENX_LOG_FILE:-$APP_DIR/irenx.log}" 2>&1 &
-  local pid=$!
-  for _ in $(seq 1 20); do
-    if curl -fsS --max-time 1 "$LOCAL_URL/api/health" >/dev/null 2>&1; then return 0; fi
-    sleep 0.25
-  done
-  echo "IRENX local server gagal start (PID $pid). Log: ${IRENX_LOG_FILE:-$APP_DIR/irenx.log}" >&2
-  return 1
-}
+stop(){ if [[ -f "$PIDFILE" ]]; then pid=$(cat "$PIDFILE" 2>/dev/null || true); if [[ "$pid" =~ ^[0-9]+$ ]]; then kill "$pid" 2>/dev/null || true; fi; rm -f "$PIDFILE"; fi; echo "IRENX stopped"; }
+status(){ if running; then echo "IRENX ONLINE: $URL"; else echo "IRENX OFFLINE: $URL"; return 1; fi; }
+health(){ curl -sS --max-time 5 "$URL/api/health"; printf '\n'; }
+market(){ local s="${1:-XAUUSD}"; curl -sS --max-time 5 "$URL/api/market?symbol=$(printf '%s' "$s" | tr '[:lower:]' '[:upper:]')"; printf '\n'; }
+ask(){ [[ $# -ge 1 ]] || { echo 'Usage: irenx ask "question"' >&2; exit 2; }; local p; p="$(node -e 'process.stdout.write(JSON.stringify({prompt:process.argv[1]}))' "$1")"; curl -sS --max-time 10 -X POST "$URL/api/ai" -H 'content-type: application/json' --data-binary "$p"; printf '\n'; }
 
 case "${1:-help}" in
-  start) start ;;
-  health) ensure_server; health ;;
-  market) ensure_server; market "${2:-XAUUSD}" ;;
-  signal) ensure_server; ask "IRENX SIGNAL ${2:-XAUUSD}" ;;
-  scalping) ensure_server; ask "IRENX SCALPING ${2:-XAUUSD}" ;;
-  prime) ensure_server; ask "IRENX PRIME ${2:-XAUUSD}" ;;
-  ask)
-    [[ $# -ge 2 ]] || { echo 'Usage: irenx ask "question"' >&2; exit 2; }
-    ensure_server
-    ask "$2"
-    ;;
-  help|-h|--help) usage ;;
-  *) echo "Unknown command: $1" >&2; usage >&2; exit 2 ;;
-esac
+ start) start;; stop) stop;; restart) stop; start;; status) status;; health) start >/dev/null; health;; market) start >/dev/null; market "${2:-XAUUSD}";; signal|scalping|prime) start >/dev/null; ask "IRENX ${1^^} ${2:-XAUUSD}";; ask) start >/dev/null; shift; ask "$*";; help|-h|--help) usage;; *) echo "Unknown command: $1" >&2; usage >&2; exit 2;; esac
