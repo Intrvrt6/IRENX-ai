@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: irenx-security-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   gitleaks:
@@ -71,7 +71,7 @@ jobs:
           scan-ref: .
           scanners: vuln,secret,misconfig
           severity: CRITICAL,HIGH
-          ignore-unfixed: true
+          ignore-unfixed: false 
 
   policy:
     name: IRENX security policy gate
