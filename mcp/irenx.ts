@@ -3,6 +3,7 @@ import * as z from "npm:zod@4";
 
 const PUBLIC_ORIGIN = process.env.MCP_PUBLIC_ORIGIN || "https://ai.irenx.com";
 const CDNJS_API_ORIGIN = "https://api.cdnjs.com";
+const STATUSPAGE_API_ORIGIN = "https://api.statuspage.io";
 const DOCS = [
   { id: "readme", title: "IRENX-ai README", path: "README.md" },
   { id: "dify-integration", title: "IRENX Dify Integration", path: "docs/DIFY_INTEGRATION.md" },
@@ -10,6 +11,7 @@ const DOCS = [
   { id: "ci-verification", title: "IRENX CI Verification", path: "docs/CI-VERIFICATION.md" },
   { id: "automation", title: "IRENX Automation", path: "AUTOMATION.md" },
   { id: "cdnjs-api", title: "IRENX cdnjs API Integration", path: "docs/CDNJS_API_INTEGRATION.md" },
+  { id: "statuspage-api", title: "IRENX Statuspage API Integration", path: "docs/STATUSPAGE_API_INTEGRATION.md" },
 ];
 
 type SearchResult = { id: string; title: string; url: string };
@@ -46,9 +48,18 @@ function cdnjsUrl(path: string, query?: Record<string, string>) {
   return url;
 }
 
+function statuspageUrl(path: string, query?: Record<string, string>) {
+  if (!path.startsWith("/v1/") || path.startsWith("//") || path.includes("\\") || path.includes("..")) {
+    throw new Error("Invalid Statuspage API path");
+  }
+  const url = new URL(path, STATUSPAGE_API_ORIGIN);
+  if (query) for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+  return url;
+}
+
 export function createIrenxMcpHandler() {
   return createMcpHandler(() => {
-    const server = new McpServer({ name: "IRENX AI MCP", version: "1.1.0" });
+    const server = new McpServer({ name: "IRENX AI MCP", version: "1.2.0" });
 
     server.registerTool(
       "search",
@@ -108,9 +119,32 @@ export function createIrenxMcpHandler() {
     );
 
     server.registerTool(
+      "statuspage_get_page",
+      {
+        description: "Read a Statuspage page using the official Statuspage API. Read-only; the API key remains server-side and is never returned.",
+        inputSchema: z.object({ page_id: z.string().min(1).max(200).optional(), path: z.string().min(1).max(500).default("/v1/pages") }),
+      },
+      async ({ page_id, path }) => {
+        const configuredPageId = process.env.STATUSPAGE_PAGE_ID || "";
+        const id = page_id || configuredPageId;
+        if (!id && path === "/v1/pages") throw new Error("STATUSPAGE_PAGE_ID is required for a page lookup");
+        const resolvedPath = path === "/v1/pages" ? `/v1/pages/${encodeURIComponent(id)}` : path;
+        const apiKey = process.env.STATUSPAGE_API_KEY || "";
+        if (!apiKey) throw new Error("STATUSPAGE_API_KEY is not configured");
+        const url = statuspageUrl(resolvedPath);
+        const response = await fetch(url, { method: "GET", headers: { Accept: "application/json", Authorization: `OAuth ${apiKey}` } });
+        const text = await response.text();
+        if (!response.ok) throw new Error(`Statuspage API request failed with HTTP ${response.status}`);
+        let data: unknown;
+        try { data = JSON.parse(text); } catch { data = text; }
+        return { content: [{ type: "text", text: JSON.stringify({ source: "statuspage", pageId: id || null, data }) }] };
+      },
+    );
+
+    server.registerTool(
       "health",
       { description: "Return IRENX MCP and runtime health information.", inputSchema: z.object({}) },
-      async () => ({ content: [{ type: "text", text: JSON.stringify({ ok: true, service: "irenx-mcp", cdnjsApi: CDNJS_API_ORIGIN, timestamp: new Date().toISOString() }) }] }),
+      async () => ({ content: [{ type: "text", text: JSON.stringify({ ok: true, service: "irenx-mcp", cdnjsApi: CDNJS_API_ORIGIN, statuspageApi: STATUSPAGE_API_ORIGIN, statuspageConfigured: Boolean(process.env.STATUSPAGE_API_KEY), timestamp: new Date().toISOString() }) }] }),
     );
 
     return server;
