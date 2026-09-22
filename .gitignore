@@ -24,3 +24,7 @@ TestResults.xml
 # Local deployment state
 caddy_data/
 caddy_config/
+
+# IRENX recovery/authentication secrets
+recovery-codes.txt
+*recovery-codes*
