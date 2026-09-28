@@ -1,302 +1,164 @@
 <div align="center">
 
 # IRENX
-### PRIME AI · OMNIROUTE · EDGE INTELLIGENCE
+### PRIME AI • OMNIROUTE • EDGE INTELLIGENCE
 
-**A self-hosted AI intelligence gateway built for precision, control, and elegant simplicity.**
+**A self-hosted AI gateway for controlled routing, reliable operations, and local-first deployment.**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/Intrvrt6/IRENX-ai/rust-edge.yml?label=CI&style=flat-square)](https://github.com/Intrvrt6/IRENX-ai/actions)
 [![License](https://img.shields.io/github/license/Intrvrt6/IRENX-ai?style=flat-square)](LICENSE)
-[![Rust](https://img.shields.io/badge/Rust-WASM-canary-111111?style=flat-square&logo=rust)](rust/)
 [![Self Hosted](https://img.shields.io/badge/Self--Hosted-Yes-111111?style=flat-square)](#deployment)
+[![Termux](https://img.shields.io/badge/Android-Termux-111111?style=flat-square)](TERMUX.md)
 
 </div>
 
-<p align="center">
-  <img src="docs/assets/irenx-terminal.svg" alt="IRENX PRIME AI terminal showcase" width="100%" />
-</p>
+> IRENX provides one controlled gateway for AI routing, integrations, market data, and operational observability—without requiring a public cloud deployment for local development.
 
-> **IRENX is intentionally simple on the surface and disciplined underneath.**
-> One gateway. One routing layer. Controlled integrations. Fail-fast CI. Regression gates before `main`.
+## What IRENX is
 
----
+IRENX is a self-hosted AI intelligence gateway. It places an application-level policy and routing layer in front of model providers and optional business integrations.
 
-## ✦ What is IRENX?
+The production runtime is Bun/TypeScript. Cloudflare Workers and Rust/WASM are isolated edge options and canaries; they do not silently replace the primary gateway.
 
-IRENX PRIME AI is a **self-hosted AI gateway and intelligence terminal** combining:
+## Capabilities
 
-- **OmniRoute Core Router V2** — task-aware provider routing, scoring, budget guards, timeout and circuit-breaker logic.
-- **OpenAI-compatible gateway** — designed for OmniCopilot and compatible clients.
-- **Dify bridge** — server-side workflows and chat integration.
-- **Live market layer** — normalized market data endpoints for supported symbols.
-- **Cloudflare Rust/WASM canary** — isolated edge runtime, promoted only after verification.
-- **Fail-fast CI + regression gates** — broken changes stop before they reach `main`.
-- **Self-hosted deployment** — Bun + Docker + Caddy, with no dependency on Vercel.
+- Task-aware OmniRoute provider selection
+- OpenAI-compatible gateway endpoints
+- Budget, token, timeout, and circuit-breaker controls
+- Dify workflow and chat bridge
+- Odoo and Google People integrations
+- Normalized market data for supported symbols
+- MCP integration surface
+- Docker/Caddy deployment for production
+- Local Android deployment through Termux
+- CI and regression gates for controlled promotion
 
-### Design language
-
-**Black. Gold. Quiet. Precise.**
-
-The repository intentionally favors a premium, minimal visual identity instead of a crowded dashboard aesthetic.
-
----
-
-## ◈ Architecture
-
-<p align="center">
-  <img src="docs/assets/irenx-architecture.svg" alt="IRENX architecture and regression gate" width="100%" />
-</p>
+## Architecture
 
 ```text
-Client
-  │
-  ▼
-Public API / OpenAI-compatible Gateway
-  │
-  ▼
-IRENX Core Router V2
-  │
-  ▼
-OmniRoute
-  │
-  ├── GPT
-  ├── Claude
-  ├── Gemini
-  ├── Qwen
-  ├── DeepSeek
-  └── other providers
+Client / Browser / Termux
+            │
+            ▼
+     IRENX HTTP Gateway
+            │
+            ▼
+     Policy + Core Router
+            │
+            ▼
+        OmniRoute
+       /    |     \
+   GPT   Claude   Other providers
 
-Optional integrations
-  ├── Dify
-  ├── MCP
-  └── Rust/WASM edge canary
+Optional: Dify • MCP • Odoo • Market data • Edge canary
 ```
 
-### Runtime authority
+## Quick start with Termux
 
-The TypeScript/Bun gateway remains the production authority. The Rust/WASM worker is a **controlled canary**, not an automatic replacement.
+```bash
+pkg update && pkg upgrade -y
+pkg install -y git curl bun
 
-Promotion requires the relevant quality and runtime checks to pass.
-
----
-
-## ◇ Repository structure
-
-```text
-IRENX-ai/
-├── index.html                 # PRIME terminal UI
-├── api/                       # public API + AI gateway
-│   └── v1/                    # OpenAI-compatible surface
-├── src/omniroute/             # Core routing intelligence
-├── mcp/                       # MCP integration surface
-├── worker/                    # Cloudflare TypeScript worker
-├── rust/                      # Rust/WASM edge canary
-├── docs/                      # architecture + operations
-│   └── assets/                # premium repository showcase graphics
-├── .github/workflows/         # CI / governance / regression gates
-├── Dockerfile                 # self-hosted image
-├── docker-compose.yml         # production compose stack
-├── Caddyfile                  # HTTPS reverse proxy
-├── wrangler.toml              # Cloudflare configuration
-└── deploy.sh                  # deployment + health checks
+git clone https://github.com/Intrvrt6/IRENX-ai.git
+cd IRENX-ai
+bun install
+cp .env.example .env
+bun run start:termux
 ```
 
----
+Open `http://127.0.0.1:3000` in the Android browser.
 
-## ⚡ Fail-fast CI & regression gates
+Detailed Android instructions are in [`TERMUX.md`](TERMUX.md).
 
-IRENX treats CI as a **merge boundary**, not a notification system.
+## Local development
 
-```text
-PR / PUSH
-   │
-   ├─ source / governance validation
-   ├─ formatting
-   ├─ lint / Clippy
-   ├─ regression tests
-   ├─ WASM build
-   ├─ worker-build validation
-   └─ Wrangler dry-run
-          │
-          ▼
-       ALL PASS
-          │
-          ▼
-      eligible for main
+```bash
+bun install
+bun run typecheck
+bun run start
 ```
 
-The principle is strict:
+The local server listens on port `3000` by default. Override it when necessary:
 
-> **If a required check fails, downstream verification stops and the change is not production-ready.**
+```bash
+PORT=3001 CORS_ORIGIN=http://127.0.0.1:3001 bun run start
+```
 
-This prevents a formatting or compilation regression from being hidden behind later checks.
+Health checks:
 
----
+```bash
+curl http://127.0.0.1:3000/api/health
+curl http://127.0.0.1:3000/api/ai/health
+```
 
-## ◎ API surface
+## API surface
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/health` | Market + AI gateway health |
-| `GET /api/ai/health` | AI Core Router observability |
-| `GET /api/ai/route?prompt=...` | Route-selection dry run |
+| `GET /api/health` | Overall gateway health |
+| `GET /api/ai/health` | Router observability |
+| `GET /api/ai/route?prompt=...` | Routing preview |
 | `POST /api/ai` | Task-aware AI request |
 | `GET /api/v1/models` | OpenAI-compatible model catalog |
 | `POST /api/v1/chat/completions` | OpenAI-compatible chat gateway |
-| `GET /api/market?symbol=XAUUSD` | Normalized latest quote |
-| `WS /api/ws` | Browser WebSocket stream |
+| `GET /api/market?symbol=XAUUSD` | Normalized market quote |
+| `WS /api/ws` | Live browser stream |
+| `GET /api/dify/health` | Dify bridge health |
+| `GET /api/odoo/health` | Odoo integration health |
+| `GET /api/google/people/health` | Google People integration health |
+| `GET /mcp` | MCP surface |
 
-Supported market symbols currently include `XAUUSD`, `EURUSD`, `GBPUSD`, `USDJPY`, and `NAS100`.
+Supported market symbols: `XAUUSD`, `EURUSD`, `GBPUSD`, `USDJPY`, and `NAS100`.
 
----
+## Configuration and security
 
-## ⌁ OmniRoute Core Router V2
+Copy `.env.example` to `.env` and configure only the integrations you need. Provider credentials are server-side secrets and must never be embedded in the frontend or committed to Git.
 
-IRENX adds an application-level policy layer in front of OmniRoute without duplicating OmniRoute's provider registry.
-
-### Resilience
-
-- Circuit breaker with cooldown and recovery probing.
-- Request timeout.
-- Provider fallback delegated to OmniRoute.
-- Observability around routing decisions.
-
-### Budget / quota guard
+Important controls include:
 
 ```text
 IRENX_AI_BUDGET_USD=2
-IRENX_AI_MAX_REQUESTS=0
-IRENX_AI_MAX_TOKENS=0
-IRENX_INPUT_USD_PER_1M=3
-IRENX_OUTPUT_USD_PER_1M=15
-IRENX_EST_OUTPUT_TOKENS=1200
+IRENX_AI_MAX_REQUESTS=100
+IRENX_AI_MAX_TOKENS=200000
+IRENX_AI_MAX_LATENCY_MS=12000
+IRENX_AI_TIMEOUT_MS=45000
+IRENX_CB_FAILURE_THRESHOLD=3
+IRENX_CB_COOLDOWN_MS=30000
 ```
 
-`0` means unlimited for request/token quotas.
+Use `SECURITY.md` for vulnerability reporting and secret-handling requirements.
 
----
+## Production deployment
 
-## ◇ OmniCopilot
-
-```text
-VS Code / Copilot Chat
-        │
-        ▼
-   OmniCopilot
-        │
-        ▼
-https://ai.irenx.com/api/v1
-        │
-        ▼
- IRENX Core Router
-        │
-        ▼
-    OmniRoute
-```
-
-By default, `IRENX_COPILOT_RESPECT_MODEL=0`, allowing IRENX to classify the workload and select a route family. Set it to `1` to respect the model selected by the client.
-
----
-
-## ◇ Dify
-
-IRENX provides a server-side Dify bridge:
-
-- `GET /api/dify/health`
-- `POST /api/dify/workflows/run`
-- `POST /api/dify/chat-messages`
-
-Dify remains an external/self-hosted application engine.
-
----
-
-## Deployment
-
-IRENX is designed for a normal Linux VPS/server using Docker and Caddy.
-
-### Requirements
-
-- Linux VPS/server
-- Docker Engine
-- Docker Compose plugin
-- Ports `80/tcp` and `443/tcp`
-- DNS `ai.irenx.com` → server IP
-
-### Environment
+For a Linux server with Docker and Caddy:
 
 ```bash
 cp .env.example .env
-```
-
-At minimum:
-
-```text
-OMNIROUTE_BASE_URL=http://127.0.0.1:20128
-OMNIROUTE_API_KEY=...
-TWELVEDATA_API_KEY=...
-```
-
-For Dify:
-
-```text
-DIFY_BASE_URL=http://dify-api:5001
-DIFY_API_KEY=...
-```
-
-**Never commit `.env`, credentials, API keys, or provider secrets.**
-
-### Start
-
-```bash
+# configure secrets in .env
 bash deploy.sh
 ```
 
-or:
+The production domain and Cloudflare Worker configuration are maintained separately from the local Termux workflow. Local development does not require Docker, Cloudflare, or a public DNS record.
 
-```bash
-docker compose up -d --build
-```
-
-### Verify
-
-```bash
-curl -fsS https://ai.irenx.com/api/health
-curl -fsS https://ai.irenx.com/api/ai/health
-```
-
----
-
-## Security posture
-
-IRENX follows a controlled architecture boundary:
-
-- Credentials stay server-side.
-- Public API access is separated from provider credentials.
-- Rust/WASM is treated as a canary until verified.
-- CI is designed to fail fast on regressions.
-- Production deployment is self-hosted and explicit.
-
----
-
-## ✦ Philosophy
+## Repository layout
 
 ```text
-LESS NOISE.
-MORE SIGNAL.
-
-SIMPLE INTERFACE.
-SERIOUS ENGINEERING.
-
-FAST FAILURE.
-SAFE PROMOTION.
-
-ONE GATEWAY.
-FULL CONTROL.
+api/                 HTTP gateway and integrations
+src/omniroute/       routing policy and provider control
+mcp/                 MCP surface
+worker/              Cloudflare Worker runtime
+rust/                Rust/WASM edge canary
+docs/                architecture and operations
+scripts/             local development helpers
+TERMUX.md            Android/Termux deployment guide
+Dockerfile           production container image
+docker-compose.yml   Docker/Caddy stack
+wrangler.toml        Cloudflare configuration
 ```
 
-<div align="center">
+## Quality gates
 
-### IRENX PRIME AI
-**Precision over noise. Control over complexity.**
+IRENX treats CI as a promotion boundary. Formatting, type checks, regression tests, edge validation, and deployment dry-runs must pass before a change is considered production-ready.
 
-</div>
+## License
+
+IRENX is released under the MIT License. See [`LICENSE`](LICENSE). Third-party services and dependencies remain subject to their own terms, as documented in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
