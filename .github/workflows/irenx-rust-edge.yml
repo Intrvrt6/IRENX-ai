@@ -53,4 +53,4 @@ jobs:
         run: cargo install worker-build --locked
 
       - name: Wrangler dry run
-        run: npx --yes wrangler deploy --config wrangler.toml --dry-run
+        run: cd .. && npx --yes wrangler deploy --config wrangler.toml --dry-run

@@ -1,6 +1,7 @@
 import { createMcpHandler } from "agents/mcp/server";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { getCloudflareHealth } from "./cloudflare-health";
 
 type Env = {
   IRENX_ENV: string;
@@ -72,11 +73,7 @@ async function routeOpenAI(prompt: string, env: Env) {
       method: "POST",
       signal: controller.signal,
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({
-        model,
-        tools: [{ type: "web_search", search_context_size: context }],
-        input: prompt
-      })
+      body: JSON.stringify({ model, tools: [{ type: "web_search", search_context_size: context }], input: prompt })
     });
     const latency = Date.now() - started;
     m.latency += latency;
@@ -155,8 +152,9 @@ export default { async fetch(request: Request, env: Env, ctx: ExecutionContext) 
   const url = new URL(request.url);
   if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) return mcpHandler(request, env, ctx);
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "Content-Type, Authorization, Mcp-Session-Id" } });
-  if (url.pathname === "/" || url.pathname === "/api") return json({ service: "IRENX Cloudflare-native", version: "1.1.0", endpoints: ["/api/health", "/api/ai/route", "/api/ai", "/api/dify/health", "/mcp"] });
-  if (url.pathname === "/api/health") return json({ ok: true, service: "irenx-cloudflare", environment: env.IRENX_ENV, domain: env.IRENX_PUBLIC_ORIGIN, mcp: "/mcp", upstreams: { openai: Boolean(env.OPENAI_API_KEY), omniroute: Boolean(env.OMNIROUTE_BASE_URL && env.OMNIROUTE_API_KEY), dify: Boolean(env.DIFY_BASE_URL && env.DIFY_API_KEY) }, totals: { requests: totalRequests, tokens: totalTokens, estimatedSpendUsd: Number(totalSpend.toFixed(6)) }, time: new Date().toISOString() });
+  if (url.pathname === "/" || url.pathname === "/api") return json({ service: "IRENX Cloudflare-native", version: "1.1.0", endpoints: ["/api/health", "/api/infra/cloudflare", "/api/ai/route", "/api/ai", "/api/dify/health", "/mcp"] });
+  if (url.pathname === "/api/infra/cloudflare") return json(await getCloudflareHealth(url.searchParams.get("refresh") === "1"));
+  if (url.pathname === "/api/health") { const cloudflare = await getCloudflareHealth(); return json({ ok: true, service: "irenx-cloudflare", environment: env.IRENX_ENV, domain: env.IRENX_PUBLIC_ORIGIN, infrastructure: { cloudflare }, mcp: "/mcp", upstreams: { openai: Boolean(env.OPENAI_API_KEY), omniroute: Boolean(env.OMNIROUTE_BASE_URL && env.OMNIROUTE_API_KEY), dify: Boolean(env.DIFY_BASE_URL && env.DIFY_API_KEY) }, totals: { requests: totalRequests, tokens: totalTokens, estimatedSpendUsd: Number(totalSpend.toFixed(6)) }, time: new Date().toISOString() }); }
   if (url.pathname === "/api/ai/route") { const prompt = url.searchParams.get("prompt") || ""; if (!prompt) return json({ error: "prompt is required" }, 400); return json({ task: classify(prompt), route: env.OPENAI_API_KEY ? (env.IRENX_OPENAI_MODEL || "gpt-5.6") : classify(prompt) === "coding" ? "auto/coding:pro" : classify(prompt) === "trading" ? "auto/reasoning:pro" : "auto", webSearch: Boolean(env.OPENAI_API_KEY) }); }
   if (url.pathname === "/api/ai" && request.method === "POST") { try { const body: any = await request.json(); const prompt = typeof body?.prompt === "string" ? body.prompt : ""; if (!prompt.trim()) return json({ error: "prompt is required" }, 400); return json(await routeAI(prompt, env, typeof body?.model === "string" ? body.model : undefined)); } catch (e) { return json({ error: e instanceof Error ? e.message : "IRENX AI failure" }, 502); } }
   if (url.pathname === "/api/dify/health") return json({ ok: Boolean(env.DIFY_BASE_URL && env.DIFY_API_KEY), configured: Boolean(env.DIFY_BASE_URL && env.DIFY_API_KEY), baseUrl: env.DIFY_BASE_URL || null });
