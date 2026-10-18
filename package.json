@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
+    "start": "bun run api/index.ts",
+    "start:termux": "bash scripts/termux-start.sh",
     "deploy": "wrangler deploy",
     "deploy:whatsapp": "wrangler deploy -c wrangler.whatsapp.toml",
     "typecheck": "tsc --noEmit",
