@@ -1,0 +1,16 @@
+IRENX third-party notice
+
+IRENX is distributed under the MIT License; see LICENSE.
+
+This repository integrates or communicates with external projects and services. Their names, trademarks, source code, APIs, and licenses remain subject to their respective terms.
+
+Notable integrations include:
+- Cloudflare / Workers / Wrangler
+- Model Context Protocol SDK
+- Dify
+- Odoo
+- Twelve Data
+- cdnjs API
+- OpenAI-compatible and other provider APIs
+
+This NOTICE does not grant rights to third-party trademarks, services, or separately licensed software.

@@ -1,0 +1,12 @@
+# Default ownership for IRENX
+* @Intrvrt6
+
+# Security-sensitive surfaces
+/.github/ @Intrvrt6
+/SECURITY.md @Intrvrt6
+/CODEOWNERS @Intrvrt6
+/mcp/ @Intrvrt6
+/worker/ @Intrvrt6
+/api/ @Intrvrt6
+/src/ @Intrvrt6
+/rust/ @Intrvrt6

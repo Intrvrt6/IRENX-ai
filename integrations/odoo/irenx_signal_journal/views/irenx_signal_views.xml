@@ -1,0 +1,78 @@
+<odoo>
+    <record id="view_irenx_signal_tree" model="ir.ui.view">
+        <field name="name">irenx.signal.tree</field>
+        <field name="model">irenx.signal</field>
+        <field name="arch" type="xml">
+            <list string="IRENX Signal Journal">
+                <field name="signal_time"/>
+                <field name="symbol"/>
+                <field name="status"/>
+                <field name="bias"/>
+                <field name="entry"/>
+                <field name="sl"/>
+                <field name="tp1"/>
+                <field name="tp2"/>
+                <field name="tp3"/>
+                <field name="confidence"/>
+                <field name="timeframe"/>
+                <field name="regime"/>
+                <field name="external_id"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_irenx_signal_form" model="ir.ui.view">
+        <field name="name">irenx.signal.form</field>
+        <field name="model">irenx.signal</field>
+        <field name="arch" type="xml">
+            <form string="IRENX Signal">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="symbol"/>
+                            <field name="status"/>
+                            <field name="bias"/>
+                            <field name="timeframe"/>
+                            <field name="signal_time"/>
+                            <field name="confidence"/>
+                        </group>
+                        <group>
+                            <field name="entry"/>
+                            <field name="sl"/>
+                            <field name="tp1"/>
+                            <field name="tp2"/>
+                            <field name="tp3"/>
+                            <field name="external_id"/>
+                            <field name="source"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="IRENX Analysis">
+                            <group>
+                                <field name="regime"/>
+                                <field name="liquidity"/>
+                                <field name="reflexivity"/>
+                                <field name="orochi"/>
+                                <field name="vmap"/>
+                                <field name="trigger"/>
+                            </group>
+                        </page>
+                        <page string="Metadata">
+                            <field name="metadata_json" nolabel="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_irenx_signal" model="ir.actions.act_window">
+        <field name="name">IRENX Signal Journal</field>
+        <field name="res_model">irenx.signal</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_irenx_root" name="IRENX" sequence="10"/>
+    <menuitem id="menu_irenx_signal" name="Signal Journal" parent="menu_irenx_root" action="action_irenx_signal" sequence="10"/>
+</odoo>
