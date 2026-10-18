@@ -1,13 +1,13 @@
 # DevOps Prompt Templates
 
-## 1) Terraform module
-> Create a Terraform module for [resource] with inputs [list], outputs [list], and tags [required tags]. Follow secure defaults, avoid hardcoded secrets, and include validation checks. Provide example usage and a brief explanation of state considerations.
+## 1) GitHub Actions workflow
+> Create a GitHub Actions workflow for `[service]` that runs linting, tests, security scans, and deployment. Use safe secret handling, only deploy on approved conditions, and include both pull request and push triggers.
 
-## 2) CI/CD workflow
-> Write a GitHub Actions workflow that runs lint, tests, security scans, and deployment for [service]. Trigger on pushes and pull requests. Include safe secret usage and conditional deployment to staging only.
+## 2) Infrastructure configuration
+> Write a Terraform or shell-based configuration for `[resource]` with secure defaults, explicit outputs, and validation checks. Avoid hard-coded secrets and document required inputs and state expectations.
 
-## 3) Bash script
-> Write a Bash script that validates environment variables, checks prerequisites, and deploys [service] with clear error handling. Make the script idempotent and safe for CI runners.
+## 3) Deployment script
+> Write a deployment script for `[service]` that validates required environment variables, checks prerequisites, and exits cleanly on failure. Make it idempotent and safe for CI environments.
 
-## 4) Security policy check
-> Review this Terraform or Bash configuration for security risks, including secret leakage, overly broad permissions, and unsafe defaults. Provide a prioritized remediation list.
+## 4) Security review
+> Review this infrastructure or deployment configuration for security issues. Focus on secret leakage, overly broad permissions, unsafe defaults, and deployment conditions. Provide a prioritized remediation list.

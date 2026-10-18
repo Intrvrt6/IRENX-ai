@@ -1,164 +1,192 @@
-<div align="center">
+# GitHub Copilot: Enterprise Guidance for IRENX-ai
 
-# IRENX
-### PRIME AI • OMNIROUTE • EDGE INTELLIGENCE
+## Purpose
 
-**A self-hosted AI gateway for controlled routing, reliable operations, and local-first deployment.**
+This repository is primarily TypeScript-based (approximately 63%), with supporting Shell, JavaScript, HTML, Rust, and Python usage. GitHub Copilot is a valuable acceleration tool for this codebase, especially for TypeScript service code, frontend components, API typing, tests, and repetitive implementation work.
 
-[![CI](https://img.shields.io/github/actions/workflow/status/Intrvrt6/IRENX-ai/rust-edge.yml?label=CI&style=flat-square)](https://github.com/Intrvrt6/IRENX-ai/actions)
-[![License](https://img.shields.io/github/license/Intrvrt6/IRENX-ai?style=flat-square)](LICENSE)
-[![Self Hosted](https://img.shields.io/badge/Self--Hosted-Yes-111111?style=flat-square)](#deployment)
-[![Termux](https://img.shields.io/badge/Android-Termux-111111?style=flat-square)](TERMUX.md)
+This guide defines how to use Copilot responsibly in IRENX-ai and how to validate AI-assisted changes before they are merged.
 
-</div>
+## Scope
 
-> IRENX provides one controlled gateway for AI routing, integrations, market data, and operational observability—without requiring a public cloud deployment for local development.
+This guidance applies to:
+- new feature development
+- refactors and cleanup
+- API and UI work
+- test generation
+- bug investigation and root-cause analysis
+- infrastructure and deployment automation
 
-## What IRENX is
+## Core principles
 
-IRENX is a self-hosted AI intelligence gateway. It places an application-level policy and routing layer in front of model providers and optional business integrations.
+1. Copilot accelerates work; it does not replace engineering judgment.
+2. Every generated or modified change must be reviewed by a human.
+3. Security, data handling, and permission logic must be validated explicitly.
+4. AI-generated code must follow repository architecture, type safety, and code quality standards.
+5. Generated code must be explainable and maintainable.
 
-The production runtime is Bun/TypeScript. Cloudflare Workers and Rust/WASM are isolated edge options and canaries; they do not silently replace the primary gateway.
+---
 
-## Capabilities
+## 1. Recommended usage by task type
 
-- Task-aware OmniRoute provider selection
-- OpenAI-compatible gateway endpoints
-- Budget, token, timeout, and circuit-breaker controls
-- Dify workflow and chat bridge
-- Odoo and Google People integrations
-- Normalized market data for supported symbols
-- MCP integration surface
-- Docker/Caddy deployment for production
-- Local Android deployment through Termux
-- CI and regression gates for controlled promotion
+### Use Copilot for
+- generating TypeScript interfaces, types, and API contracts
+- writing unit and integration tests
+- scaffolding repetitive components, helpers, and reducers
+- explaining existing TypeScript logic in plain English
+- generating initial implementation drafts for CRUD, validation, and schema work
+- refactoring repeated patterns and mechanical changes
 
-## Architecture
+### Do not use Copilot as a replacement for
+- architecture decisions
+- security review
+- production readiness checks
+- access-control and authorization validation
+- final code review before merge
+- compliance-sensitive logic or inference decisions
 
-```text
-Client / Browser / Termux
-            │
-            ▼
-     IRENX HTTP Gateway
-            │
-            ▼
-     Policy + Core Router
-            │
-            ▼
-        OmniRoute
-       /    |     \
-   GPT   Claude   Other providers
+---
 
-Optional: Dify • MCP • Odoo • Market data • Edge canary
-```
+## 2. Repository-specific guidance for IRENX-ai
 
-## Quick start with Termux
+Because this repository is heavily TypeScript-based, Copilot is most effective when prompts are explicit about:
+- the target TypeScript module or component
+- exact input and output types
+- API contracts and response shapes
+- runtime assumptions
+- edge cases, error handling, and retry behavior
+- required tests and validation steps
 
-```bash
-pkg update && pkg upgrade -y
-pkg install -y git curl bun
+### Good prompt pattern for this repo
+> Generate a TypeScript function in `[file path]` that takes `[input type]` and returns `[output type]`. Validate all required fields, handle `null`/`undefined` gracefully, keep the function side-effect free, and add Jest or Vitest tests for success, validation failure, and edge cases.
 
-git clone https://github.com/Intrvrt6/IRENX-ai.git
-cd IRENX-ai
-bun install
-cp .env.example .env
-bun run start:termux
-```
+### Avoid weak prompts like
+> Write a helper for this.
 
-Open `http://127.0.0.1:3000` in the Android browser.
+Weak prompts usually produce low-quality guesses and require significant rework.
 
-Detailed Android instructions are in [`TERMUX.md`](TERMUX.md).
+---
 
-## Local development
+## 3. Required review standards
 
-```bash
-bun install
-bun run typecheck
-bun run start
-```
+Before accepting any Copilot-generated change:
+- read the code carefully before merging it
+- confirm it matches the existing architecture and coding patterns
+- validate all error paths and edge cases
+- ensure type safety and null handling is correct
+- run the relevant tests, linting, and static checks
+- verify security-sensitive logic with a human reviewer
 
-The local server listens on port `3000` by default. Override it when necessary:
+### Minimum validation for TypeScript code
+- TypeScript compile check
+- unit tests for changed behavior
+- linting or formatting checks
+- dependency review if new packages are introduced
+- input validation review for API, env, and user data
 
-```bash
-PORT=3001 CORS_ORIGIN=http://127.0.0.1:3001 bun run start
-```
+---
 
-Health checks:
+## 4. Security and IP controls
 
-```bash
-curl http://127.0.0.1:3000/api/health
-curl http://127.0.0.1:3000/api/ai/health
-```
+### AI-generated code policy
+- Treat generated code as draft material unless reviewed and verified.
+- Do not merge code you cannot explain or reason about.
+- Check for obvious similarity to public code or incompatible licensing patterns.
+- Ensure generated code aligns with repository conventions and architecture.
 
-## API surface
+### Security requirements
+Generated code must be checked for:
+- unsafe input handling
+- missing validation
+- secret leakage in config or logs
+- weak auth or authorization checks
+- improper use of environment variables
+- unsafe dependency choices
+- vulnerable serialization or deserialization patterns
+- insufficient error handling in network or external integrations
 
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/health` | Overall gateway health |
-| `GET /api/ai/health` | Router observability |
-| `GET /api/ai/route?prompt=...` | Routing preview |
-| `POST /api/ai` | Task-aware AI request |
-| `GET /api/v1/models` | OpenAI-compatible model catalog |
-| `POST /api/v1/chat/completions` | OpenAI-compatible chat gateway |
-| `GET /api/market?symbol=XAUUSD` | Normalized market quote |
-| `WS /api/ws` | Live browser stream |
-| `GET /api/dify/health` | Dify bridge health |
-| `GET /api/odoo/health` | Odoo integration health |
-| `GET /api/google/people/health` | Google People integration health |
-| `GET /mcp` | MCP surface |
+### Required review gates
+- human review before merge
+- security review for auth, tokens, permissions, or data access changes
+- explicit validation of secrets, environment config, and outbound requests
+- no production merge based solely on AI output
 
-Supported market symbols: `XAUUSD`, `EURUSD`, `GBPUSD`, `USDJPY`, and `NAS100`.
+---
 
-## Configuration and security
+## 5. Prompting best practices for this repo
 
-Copy `.env.example` to `.env` and configure only the integrations you need. Provider credentials are server-side secrets and must never be embedded in the frontend or committed to Git.
+### Recommended prompt structure
+Use this pattern for complex tasks:
 
-Important controls include:
+- Goal: what should the code do?
+- Context: which file, module, or service?
+- Constraints: TypeScript types, performance, API behavior, edge cases
+- Output: expected return shape or file changes
+- Validation: tests or checks required
 
-```text
-IRENX_AI_BUDGET_USD=2
-IRENX_AI_MAX_REQUESTS=100
-IRENX_AI_MAX_TOKENS=200000
-IRENX_AI_MAX_LATENCY_MS=12000
-IRENX_AI_TIMEOUT_MS=45000
-IRENX_CB_FAILURE_THRESHOLD=3
-IRENX_CB_COOLDOWN_MS=30000
-```
+Example:
+> Review the TypeScript module in `src/services/auth.ts`. Add a typed helper that validates a JWT payload, returns a structured error object for invalid tokens, and preserves current API contract compatibility. Include unit tests for valid, expired, malformed, and missing token cases.
 
-Use `SECURITY.md` for vulnerability reporting and secret-handling requirements.
+### For large tasks
+Break work into smaller prompts:
+- design the function signature
+- implement the logic
+- add tests
+- review for edge cases
+- perform final validation
 
-## Production deployment
+---
 
-For a Linux server with Docker and Caddy:
+## 6. Team workflow
 
-```bash
-cp .env.example .env
-# configure secrets in .env
-bash deploy.sh
-```
+Use this workflow for all AI-assisted work:
 
-The production domain and Cloudflare Worker configuration are maintained separately from the local Termux workflow. Local development does not require Docker, Cloudflare, or a public DNS record.
+1. Define the requirement clearly.
+2. Provide exact file paths or symbol names.
+3. Ask Copilot for a small, bounded implementation.
+4. Review the output in context.
+5. Validate with tests, type checks, and linting.
+6. Check security, error handling, and auth/authorization boundaries.
+7. Submit for human review.
+8. Merge only after approval.
 
-## Repository layout
+---
 
-```text
-api/                 HTTP gateway and integrations
-src/omniroute/       routing policy and provider control
-mcp/                 MCP surface
-worker/              Cloudflare Worker runtime
-rust/                Rust/WASM edge canary
-docs/                architecture and operations
-scripts/             local development helpers
-TERMUX.md            Android/Termux deployment guide
-Dockerfile           production container image
-docker-compose.yml   Docker/Caddy stack
-wrangler.toml        Cloudflare configuration
-```
+## 7. Prompt templates for IRENX-ai
 
-## Quality gates
+### TypeScript utility or service
+> Implement a TypeScript helper in `[path]` that accepts `[input type]` and returns `[output type]`. Validate required fields, handle `null` and `undefined`, and preserve existing error semantics. Add tests for happy path, invalid input, and edge cases.
 
-IRENX treats CI as a promotion boundary. Formatting, type checks, regression tests, edge validation, and deployment dry-runs must pass before a change is considered production-ready.
+### Frontend component
+> Create a React/TypeScript component in `[path]` that renders `[behavior]`. Use typed props, accessible markup, loading and error states, and include unit tests for render, interaction, and recovery behavior.
 
-## License
+### API contract or DTO work
+> Define TypeScript interfaces for `[API endpoint]` based on the expected payload and response. Keep names consistent with the repo conventions, include optional fields accurately, and document assumptions in comments.
 
-IRENX is released under the MIT License. See [`LICENSE`](LICENSE). Third-party services and dependencies remain subject to their own terms, as documented in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+### Bug investigation
+> Explain the TypeScript code in `[path]` and identify likely failure points for `[bug symptom]`. Suggest the most probable root cause, validation steps, and a minimal fix with tests.
+
+### Security review
+> Review this TypeScript code for security issues. Focus on validation, token handling, user input, authorization checks, and unsafe external calls. Provide a prioritized fix list and minimal patch recommendations.
+
+---
+
+## 8. Final policy
+
+GitHub Copilot is a force multiplier for IRENX-ai, especially in TypeScript-heavy development, but it must be treated as a tool, not a substitute for engineering responsibility.
+
+All AI-assisted code must be:
+- reviewed by a human
+- consistent with repository patterns
+- validated with tests and tooling
+- secure by default
+- explainable and maintainable
+
+This repository should use Copilot to move faster without lowering engineering standards.
+
+---
+
+## 9. Useful references
+- GitHub Copilot documentation
+- repository test and lint tooling
+- repo coding standards and architecture patterns
+- internal PR review and deployment policies
